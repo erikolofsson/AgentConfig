@@ -1,0 +1,24 @@
+Import "Malterlib/Core/Malterlib.MHeader"
+
+Property
+{
+	ProductCompanyUniqueIdentifier "info.olofsson"
+	{
+		!!ProductCompanyUniqueIdentifier undefined
+	}
+
+	ProductCompany "Erik Olofsson"
+	{
+		!!ProductCompany undefined
+	}
+
+	MalterlibThread_LinuxUseStaticThreadLocal true
+	{
+		!!MalterlibThread_LinuxUseStaticThreadLocal undefined
+	}
+
+	Malterlib_AssumeMalterlibHost true
+	{
+		!!Malterlib_AssumeMalterlibHost undefined
+	}
+}
