@@ -1,0 +1,36 @@
+// Copyright © Erik Olofsson
+
+Import "Apps/*/*.MHeader"
+
+Property
+{
+	AgentConfig_App_Targets: [type(CEntity)] = []
+	Malterlib_All_App_Targets =+ AgentConfig_App_Targets
+}
+
+%Workspace "AgentConfig"
+{
+	Property.MalterlibPostCopyProject "AgentConfig"
+	{
+		!!TargetIsExecutable true
+	}
+
+	// Nothing reads a status line tool's log, and it wrote one file per invocation. Empty compiles
+	// the log system out through DMibSysLogSeverities, which takes the default log file with it
+	Property.MalterlibLog_Severities []
+
+	Property.MalterlibDeadStripDylibs true
+
+	// The macOS malloc override makes dyld interpose the shared cache at every launch, which
+	// costs a short lived tool more than the override gives it
+	Property.MalterlibMemoryManager_OverrideSystemMalloc false
+	{
+		!!PlatformFamily "macOS"
+	}
+
+	// A tool that lives for milliseconds never accumulates garbage worth a cleanup thread; the
+	// owning threads reclaim what little there is
+	Property.MalterlibMemoryManager_BackgroundCleanup false
+
+	%Target AgentConfig_App_Targets
+}

@@ -22,3 +22,5 @@ Property
 		!!Malterlib_AssumeMalterlibHost undefined
 	}
 }
+
+Import "AgentConfig.MHeader"

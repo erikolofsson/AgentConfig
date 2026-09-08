@@ -14,3 +14,16 @@
 /pcre2
 /zstd
 /tinyxml2
+/PDCursesMod
+/libedit
+/libxml2
+/CMake
+/lua
+/mhook
+/ninja
+/sqlite
+/mongo-cxx-driver
+/mariadb-connector-c
+/mongo-c-driver
+/p4source
+/c-ares

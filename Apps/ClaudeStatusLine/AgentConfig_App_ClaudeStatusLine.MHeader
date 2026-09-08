@@ -1,0 +1,38 @@
+// Copyright © Erik Olofsson
+
+%Target "AgentConfig_ClaudeStatusLine"
+{
+	Property
+	{
+		ProductName "Claude Code Status Line"
+		MalterlibPostCopyProject "AgentConfig"
+		{
+			!!MalterlibPostCopyProject undefined
+		}
+		MalterlibTargetNameType "Normal"
+	}
+	Target
+	{
+		BaseFileName "ClaudeStatusLine"
+		Group "Apps"
+		DebuggerCommandArguments ["--status-line"]
+	}
+
+	%Group "Source"
+	{
+		%File "Source/*"
+	}
+	%Dependency "Lib_Malterlib_Concurrency"
+	%Dependency "Lib_Malterlib_Web"
+	%Dependency "Lib_Malterlib"
+}
+
+Property
+{
+	AgentConfig_App_Enable_ClaudeStatusLine: bool = true // User(Apps)=false: Enable the Claude Code status line app
+
+	AgentConfig_App_Targets =+ "AgentConfig_ClaudeStatusLine"
+	{
+		!!AgentConfig_App_Enable_ClaudeStatusLine true
+	}
+}
