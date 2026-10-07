@@ -1,0 +1,52 @@
+// Copyright © Erik Olofsson
+
+%Target "AgentConfig_DesktopHelper"
+{
+	Property
+	{
+		ProductName "Desktop Helper"
+		MalterlibPostCopyProject "AgentConfig"
+		{
+			!!MalterlibPostCopyProject undefined
+		}
+		MalterlibTargetNameType "Normal"
+	}
+	Target
+	{
+		BaseFileName "DesktopHelper"
+		Group "Apps"
+		DebuggerCommandArguments ["--daemon-run-debug"]
+	}
+
+	%Group "Source"
+	{
+		%File "Source/*"
+	}
+	%Dependency "Lib_Malterlib_Concurrency"
+	%Dependency "Lib_Malterlib_Web"
+	%Dependency "Lib_Malterlib"
+}
+
+Property
+{
+	AgentConfig_App_Enable_DesktopHelper: bool = true // User(Apps)=false: Enable the desktop helper app
+
+	Malterlib_All_App_Targets =+ "AgentConfig_DesktopHelper"
+	{
+		!!AgentConfig_App_Enable_DesktopHelper true
+	}
+}
+
+// The AgentConfig workspace compiles the log system out for the status line, and the log severities are a define
+// for every target in a workspace, libraries included. The helper audits what it runs, so it has a workspace of its own
+%Workspace "AgentConfig_DesktopHelper"
+{
+	!!AgentConfig_App_Enable_DesktopHelper true
+
+	Property.MalterlibLog_Severities ["Error", "Critical", "Warning", "Info"]
+	{
+		!!MalterlibLog_EnableVerboseDebugLog false
+	}
+
+	%Target "AgentConfig_DesktopHelper"
+}
