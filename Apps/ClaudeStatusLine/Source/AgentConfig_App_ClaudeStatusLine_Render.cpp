@@ -400,7 +400,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 				fg_AddBurnBar(Appender, Percent, ResetsAt, gc_Week, _Now);
 			}
 
-			if (_Cache.m_Codex)
+			// A claimed refresh writes the entry before any fetch has succeeded
+			if (_Cache.m_Codex && _Cache.m_Codex->m_FetchedAt > 0)
 			{
 				CCodexCache const &Codex = *_Cache.m_Codex;
 
