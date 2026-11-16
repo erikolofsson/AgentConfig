@@ -77,9 +77,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 				{
 					"Names"_o= _o["--status-line"]
 					, "Description"_o= "Render the Claude Code status line.\n"
-						"Reads the status JSON document from stdin, as Claude Code supplies it to a statusLine command.\n"
-						"The per-model and Codex weekly limits come from ~/.claude/statusline-cache.json, which a detached "
-						"--refresh child keeps fresh.\n"
+					"Reads the status JSON document from stdin, as Claude Code supplies it to a statusLine command.\n"
+					"The per-model and Codex weekly limits come from ~/.claude/statusline-cache.json, which a detached "
+					"--refresh child keeps fresh.\n"
 					, "Output"_o= "A single line of text with ansi escape codes."
 					, "Options"_o=
 					{
@@ -103,7 +103,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 				{
 					"Names"_o= _o["--refresh"]
 					, "Description"_o= "Refresh the usage cache the status line renders from.\n"
-						"The status line starts this itself as a detached child whenever an entry is stale.\n"
+					"The status line starts this itself as a detached child whenever an entry is stale.\n"
 					, "Options"_o=
 					{
 						"Targets?"_o=
@@ -111,15 +111,15 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 							"Names"_o= _o["--targets"]
 							, "Default"_o= "claude,codex"
 							, "Description"_o= "Comma separated entries to refresh: claude (the per-model weekly limit from the usage API) "
-								"and codex (the Codex weekly limit from codex app-server).\n"
+							"and codex (the Codex weekly limit from codex app-server).\n"
 						}
 						, "UnchangedSince?"_o=
 						{
 							"Names"_o= _o["--unchanged-since"]
 							, "Default"_o= "0"
 							, "Description"_o= "Refresh an entry only while nothing has touched it since this Unix time. The status line "
-								"passes the time it read the cache, so sessions sharing the cache refresh an entry once between them "
-								"rather than once each. Zero, the default, refreshes whatever is asked for.\n"
+							"passes the time it read the cache, so sessions sharing the cache refresh an entry once between them "
+							"rather than once each. Zero, the default, refreshes whatever is asked for.\n"
 						}
 					}
 				}
@@ -135,8 +135,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 				{
 					"Names"_o= _o["--install"]
 					, "Description"_o= "Install this executable as the Claude Code status line.\n"
-						"Sets statusLine in the Claude Code settings to run `<this executable> --status-line`, keeping "
-						"every other setting as it is.\n"
+					"Sets statusLine in the Claude Code settings to run `<this executable> --status-line`, keeping "
+					"every other setting as it is.\n"
 					, "Options"_o=
 					{
 						"Settings?"_o=
@@ -150,7 +150,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 							"Names"_o= _o["--refresh-interval"]
 							, "Default"_o= "10"
 							, "Description"_o= "Seconds between the timed re-runs Claude Code makes on top of its own triggers, which keeps "
-								"the burn bars and the times to reset moving while a session sits idle. Zero leaves the setting out.\n"
+							"the burn bars and the times to reset moving while a session sits idle. Zero leaves the setting out.\n"
 						}
 					}
 				}
@@ -162,11 +162,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		;
 	}
 
-	TCFuture<uint32> CStatusLineTool::fp_RunStatusLine
-		(
-			NStorage::TCSharedPointer<CCommandLineControl> _pCommandLine
-			, CStr _OverrideInput
-		)
+	TCFuture<uint32> CStatusLineTool::fp_RunStatusLine(NStorage::TCSharedPointer<CCommandLineControl> _pCommandLine, CStr _OverrideInput)
 	{
 		// The cache read goes to the blocking actor first thing, so it overlaps reading stdin
 		TCFuture<CStatusCache> CacheRead;
@@ -215,15 +211,15 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			auto BlockingActorCheckout = fg_BlockingActor();
 
 			(
-				g_Dispatch(BlockingActorCheckout)
-				/ [Targets = Render.m_StaleTargets, SeenWeekly = Input.m_bWeeklyPresent ? Input.m_WeeklyText : CStr{}, Now]
+				g_Dispatch(BlockingActorCheckout) / [Targets = Render.m_StaleTargets, SeenWeekly = Input.m_bWeeklyPresent ? Input.m_WeeklyText : CStr{}, Now]
 				{
 					// The child is handed the time this render read the cache, and claims only what
 					// nothing has touched since, so several sessions finding the same entry stale
 					// still refresh it once
 					fg_SpawnRefresh(Targets, SeenWeekly, Now);
 				}
-			).f_DiscardResult();
+			)
+			.f_DiscardResult();
 		}
 
 		co_await _pCommandLine->f_StdOut("{}\n"_f << Render.m_Line);
@@ -231,12 +227,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		co_return 0;
 	}
 
-	TCFuture<uint32> CStatusLineTool::fp_RunInstall
-		(
-			NStorage::TCSharedPointer<CCommandLineControl> _pCommandLine
-			, CStr _SettingsPath
-			, int64 _RefreshInterval
-		)
+	TCFuture<uint32> CStatusLineTool::fp_RunInstall(NStorage::TCSharedPointer<CCommandLineControl> _pCommandLine, CStr _SettingsPath, int64 _RefreshInterval)
 	{
 		if (_SettingsPath.f_IsEmpty())
 			_SettingsPath = fg_GetHomeDirectory() / ".claude/settings.json";
@@ -246,7 +237,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 		co_await
 			(
-				g_Dispatch(BlockingActorCheckout) / [SettingsPath = _SettingsPath, Command, _RefreshInterval]
+				g_Dispatch(BlockingActorCheckout)
+				/ [SettingsPath = _SettingsPath, Command, _RefreshInterval]
 				{
 					// The settings keep their key order; only statusLine is replaced
 					NEncoding::CJsonOrdered Settings(NEncoding::EJsonType_Object);
@@ -309,7 +301,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			Claimed = co_await
 				(
-					g_Dispatch(BlockingActorCheckout) / [Requested, _Observed, Now = fg_UnixNow()]
+					g_Dispatch(BlockingActorCheckout)
+					/ [Requested, _Observed, Now = fg_UnixNow()]
 					{
 						return fg_ClaimRefresh(Requested, _Observed, Now);
 					}
@@ -373,7 +366,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			co_await
 				(
-					g_Dispatch(BlockingActorCheckout) / [ClaudeRefreshed, CodexRefreshed]
+					g_Dispatch(BlockingActorCheckout)
+					/ [ClaudeRefreshed, CodexRefreshed]
 					{
 						fg_SaveRefreshed(ClaudeRefreshed, CodexRefreshed);
 					}

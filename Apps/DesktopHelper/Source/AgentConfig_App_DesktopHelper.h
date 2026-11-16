@@ -22,13 +22,14 @@ namespace NMib::NAgentConfig::NDesktopHelper
 		NConcurrency::TCFuture<void> fp_StartApp(NEncoding::CEJsonSorted const _Params) override;
 		NConcurrency::TCFuture<void> fp_StopApp() override;
 
-		NConcurrency::TCFuture<uint32> fp_RunInDesktop
+		auto fp_RunInDesktop
 			(
 				NStorage::TCSharedPointer<NConcurrency::CCommandLineControl> _pCommandLine
 				, NStr::CStr _Executable
 				, NContainer::TCVector<NStr::CStr> _Arguments
 				, NStr::CStr _WorkingDirectory
 			)
+			-> NConcurrency::TCFuture<uint32>
 		;
 
 		uint64 mp_iNextRun = 0; // Tags the audit entries of one run, since runs from several callers interleave in the log

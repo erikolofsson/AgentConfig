@@ -23,8 +23,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					// registers commands this tool has no use for: distributed computing and
 					// authentication trust management, the sensor store, and the distributed log
 					// reader that the compiled out log system already removes
-					NConcurrency::EDefaultCommandLineFunctionality_Help
-					| NConcurrency::EDefaultCommandLineFunctionality_Terminal
+					NConcurrency::EDefaultCommandLineFunctionality_Help | NConcurrency::EDefaultCommandLineFunctionality_Terminal
 				)
 			)
 		)

@@ -12,11 +12,6 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		// Lets the base class create the "Tools" section and register every CDistributedTool implementation.
 		CDistributedToolAppActor::fp_BuildCommandLine(o_CommandLine);
 
-		o_CommandLine.f_SetProgramDescription
-			(
-				"Claude Code status line"
-				, "Renders the Claude Code status line from the status JSON document supplied on stdin."
-			)
-		;
+		o_CommandLine.f_SetProgramDescription("Claude Code status line", "Renders the Claude Code status line from the status JSON document supplied on stdin.");
 	}
 }

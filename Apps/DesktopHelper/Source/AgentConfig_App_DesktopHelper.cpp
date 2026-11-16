@@ -39,9 +39,7 @@ namespace NMib::NAgentConfig::NDesktopHelper
 				(
 					NConcurrency::EDefaultCommandLineFunctionality
 					(
-						NConcurrency::EDefaultCommandLineFunctionality_Help
-						| NConcurrency::EDefaultCommandLineFunctionality_Logging
-						| NConcurrency::EDefaultCommandLineFunctionality_Terminal
+						NConcurrency::EDefaultCommandLineFunctionality_Help | NConcurrency::EDefaultCommandLineFunctionality_Logging | NConcurrency::EDefaultCommandLineFunctionality_Terminal
 					)
 				)
 			;

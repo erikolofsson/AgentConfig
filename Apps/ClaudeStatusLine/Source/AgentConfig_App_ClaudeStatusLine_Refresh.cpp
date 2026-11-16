@@ -101,7 +101,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 						{
 							return NFile::CFile::fs_ReadStringFromFile(Path, true);
 						}
-					).f_Wrap()
+					)
+					.f_Wrap()
 				;
 
 				if (!FileResult)
@@ -418,8 +419,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 		NWeb::CHttpClientActor::CResult Result = co_await
 			(
-				HttpClient(&NWeb::CHttpClientActor::f_Get, CStr("https://api.anthropic.com/api/oauth/usage"), Headers)
-					.f_Timeout(5.0, "No answer within 5 seconds")
+				HttpClient(&NWeb::CHttpClientActor::f_Get, CStr("https://api.anthropic.com/api/oauth/usage"), Headers).f_Timeout(5.0, "No answer within 5 seconds")
 				% "Requesting api.anthropic.com/api/oauth/usage"
 			)
 		;

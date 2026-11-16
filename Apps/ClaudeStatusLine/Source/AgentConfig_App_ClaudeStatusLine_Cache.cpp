@@ -34,16 +34,16 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		}
 
 		// Reads exactly _nDigits digits at _pStr, advancing it past them
-		bool fg_ReadDigits(ch8 const *&_pStr, aint _nDigits, int64 &o_Value)
+		bool fg_ReadDigits(ch8 const * &_pStr, aint _nDigits, int64 &o_Value)
 		{
 			int64 Value = 0;
 
-			for (aint i = 0; i < _nDigits; ++i)
+			for (aint iDigit = 0; iDigit < _nDigits; ++iDigit)
 			{
-				if (!fg_IsDigit(_pStr[i]))
+				if (!fg_IsDigit(_pStr[iDigit]))
 					return false;
 
-				Value = Value * 10 + (_pStr[i] - '0');
+				Value = Value * 10 + (_pStr[iDigit] - '0');
 			}
 
 			_pStr += _nDigits;
@@ -171,19 +171,21 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		// through a lock file beside it. Readers need no lock, the cache is replaced atomically
 		struct CCacheLock
 		{
-			CCacheLock()
-			{
-				CStr Path = fg_GetCachePath();
-
-				NFile::CFile::fs_CreateDirectory(NFile::CFile::fs_GetPath(Path));
-				m_Lock.f_SetLockFile(Path + ".lock");
-				// Every holder keeps it for about a millisecond, so waiting is for the rare case of
-				// sessions claiming at the same moment rather than for anything slow
-				m_Lock.f_LockWithException(30.0);
-			}
+			CCacheLock();
 
 			NFile::CLockFile m_Lock;
 		};
+
+		CCacheLock::CCacheLock()
+		{
+			CStr Path = fg_GetCachePath();
+
+			NFile::CFile::fs_CreateDirectory(NFile::CFile::fs_GetPath(Path));
+			m_Lock.f_SetLockFile(Path + ".lock");
+			// Every holder keeps it for about a millisecond, so waiting is for the rare case of
+			// sessions claiming at the same moment rather than for anything slow
+			m_Lock.f_LockWithException(30.0);
+		}
 
 		CStr fg_MemberText(NEncoding::CJsonSorted const *_pParent, ch8 const *_pName)
 		{

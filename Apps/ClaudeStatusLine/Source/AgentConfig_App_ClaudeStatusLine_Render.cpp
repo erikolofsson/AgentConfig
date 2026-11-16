@@ -73,55 +73,61 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		// already in effect, and the bar is reset once at its end
 		struct CCellWriter
 		{
-			CCellWriter(CStr::CAppender &_Appender)
-				: m_Appender(_Appender)
-			{
-			}
+			CCellWriter(CStr::CAppender &_Appender);
 
-			// One column of text on the filled background, for the run-out the bar carries inside it
-			void f_Text(CStr const &_Background, CStr const &_Foreground, ch8 const *_pCharacter)
-			{
-				if (m_pBackground != &_Background)
-				{
-					m_Appender += _Background;
-					m_pBackground = &_Background;
-				}
-
-				if (m_pForeground != &_Foreground)
-				{
-					m_Appender += _Foreground;
-					m_pForeground = &_Foreground;
-				}
-
-				m_Appender.f_AddString(_pCharacter, 1);
-			}
-
-			void f_Cell(CStr const &_Background, CStr const *_pForeground, CStr const &_Block)
-			{
-				if (m_pBackground != &_Background)
-				{
-					m_Appender += _Background;
-					m_pBackground = &_Background;
-				}
-
-				if (_pForeground && m_pForeground != _pForeground)
-				{
-					m_Appender += *_pForeground;
-					m_pForeground = _pForeground;
-				}
-
-				m_Appender += _Block;
-			}
-
-			void f_End()
-			{
-				m_Appender += gc_Reset;
-			}
+			void f_Text(CStr const &_Background, CStr const &_Foreground, ch8 const *_pCharacter);
+			void f_Cell(CStr const &_Background, CStr const *_pForeground, CStr const &_Block);
+			void f_End();
 
 			CStr::CAppender &m_Appender;
 			CStr const *m_pBackground = nullptr;
 			CStr const *m_pForeground = nullptr;
 		};
+
+		CCellWriter::CCellWriter(CStr::CAppender &_Appender)
+			: m_Appender(_Appender)
+		{
+		}
+
+		// One column of text on the filled background, for the run-out the bar carries inside it
+		void CCellWriter::f_Text(CStr const &_Background, CStr const &_Foreground, ch8 const *_pCharacter)
+		{
+			if (m_pBackground != &_Background)
+			{
+				m_Appender += _Background;
+				m_pBackground = &_Background;
+			}
+
+			if (m_pForeground != &_Foreground)
+			{
+				m_Appender += _Foreground;
+				m_pForeground = &_Foreground;
+			}
+
+			m_Appender.f_AddString(_pCharacter, 1);
+		}
+
+		void CCellWriter::f_Cell(CStr const &_Background, CStr const *_pForeground, CStr const &_Block)
+		{
+			if (m_pBackground != &_Background)
+			{
+				m_Appender += _Background;
+				m_pBackground = &_Background;
+			}
+
+			if (_pForeground && m_pForeground != _pForeground)
+			{
+				m_Appender += *_pForeground;
+				m_pForeground = _pForeground;
+			}
+
+			m_Appender += _Block;
+		}
+
+		void CCellWriter::f_End()
+		{
+			m_Appender += gc_Reset;
+		}
 
 		// The context bar: [filled][free][autocompact], 12 cells of 8 sub-steps each. _ZoneStart is
 		// the sub-step where the amber autocompact zone begins
@@ -131,9 +137,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			int64 Filled = fg_Floor((_Percent * fp64(Total)) / 100.0);
 			CCellWriter Cells(_Appender);
 
-			for (aint i = 0; i < gc_nContextBarChars; ++i)
+			for (aint iCell = 0; iCell < gc_nContextBarChars; ++iCell)
 			{
-				int64 Start = i * 8;
+				int64 Start = iCell * 8;
 				int64 End = Start + 8;
 				CStr const &ZoneBackground = Start >= _ZoneStart ? gc_BackgroundAutocompact : gc_BackgroundEmpty;
 
@@ -240,15 +246,15 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			{
 				CCellWriter Cells(_Appender);
 
-				for (int64 i = 0; i < nWidth; ++i)
+				for (int64 iCell = 0; iCell < nWidth; ++iCell)
 				{
-					if (!Text.f_IsEmpty() && i >= TextStart && i < TextStart + int64(Text.f_GetLen()))
+					if (!Text.f_IsEmpty() && iCell >= TextStart && iCell < TextStart + int64(Text.f_GetLen()))
 					{
-						Cells.f_Text(*pBackground, *pOnFill, Text.f_GetStr() + (i - TextStart));
+						Cells.f_Text(*pBackground, *pOnFill, Text.f_GetStr() + (iCell - TextStart));
 						continue;
 					}
 
-					int64 Start = i * 8;
+					int64 Start = iCell * 8;
 					int64 End = Start + 8;
 					CStr const &ZoneBackground = Start >= Half ? gc_BackgroundOver : gc_BackgroundEmpty;
 
@@ -400,9 +406,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			// made a request. The burn bar is for the one that runs out first, brighter than the other
 			CUsageLimit const *pScoped = _Cache.m_Claude && _Cache.m_Claude->m_Scoped ? &*_Cache.m_Claude->m_Scoped : nullptr;
 			CUsageLimit const *pAllModels = _Cache.m_Claude && _Cache.m_Claude->m_AllModels ? &*_Cache.m_Claude->m_AllModels : nullptr;
-			bool bScopedApplies = pScoped
-				&& (_Input.m_ModelName.f_IsEmpty() || _Input.m_ModelName.f_CmpNoCase(pScoped->m_Name, pScoped->m_Name.f_GetLen()) == 0)
-			;
+			bool bScopedApplies = pScoped && (_Input.m_ModelName.f_IsEmpty() || _Input.m_ModelName.f_CmpNoCase(pScoped->m_Name, pScoped->m_Name.f_GetLen()) == 0);
 
 			CShownLimit Limits[2];
 			aint nLimits = 0;
@@ -443,12 +447,12 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 				// Two spaces set the Claude and codex usage sections apart from the context section
 				Appender += gc_Space;
 
-				for (aint i = 0; i < nLimits; ++i)
+				for (aint iLimit = 0; iLimit < nLimits; ++iLimit)
 				{
 					Appender += gc_Space;
-					Appender += nLimits == 2 && i == iFirst ? gc_Highlight : gc_Dim;
-					fg_AddAbbreviation(Appender, *Limits[i].m_pLabel);
-					fg_AddNumber(Appender, ":{}%", fg_Floor(Limits[i].m_Percent));
+					Appender += nLimits == 2 && iLimit == iFirst ? gc_Highlight : gc_Dim;
+					fg_AddAbbreviation(Appender, *Limits[iLimit].m_pLabel);
+					fg_AddNumber(Appender, ":{}%", fg_Floor(Limits[iLimit].m_Percent));
 					Appender += gc_Reset;
 				}
 

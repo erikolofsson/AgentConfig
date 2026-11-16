@@ -30,10 +30,7 @@ namespace NMib::NAgentConfig::NDesktopHelper
 		// for the grace period. The stop resolves when the process exits, while descendants that ignore it can keep running
 		TCFuture<void> fg_StopRun(TCActor<CProcessLaunchActor> _ProcessLaunchActor, CDistributedAppAuditor _Auditor, uint64 _iRun)
 		{
-			auto StopResult = co_await _ProcessLaunchActor(&CProcessLaunchActor::f_StopProcessGroup)
-				.f_Timeout(gc_StopGracePeriod, "Timed out stopping the process")
-				.f_Wrap()
-			;
+			auto StopResult = co_await _ProcessLaunchActor(&CProcessLaunchActor::f_StopProcessGroup).f_Timeout(gc_StopGracePeriod, "Timed out stopping the process").f_Wrap();
 
 			if (!StopResult)
 				_Auditor.f_Warning("[Run {}] The process did not stop: {}. Killing it and its descendants"_f << _iRun << StopResult.f_GetExceptionStr());
@@ -44,13 +41,8 @@ namespace NMib::NAgentConfig::NDesktopHelper
 		}
 	}
 
-	TCFuture<uint32> CDesktopHelperActor::fp_RunInDesktop
-		(
-			NStorage::TCSharedPointer<CCommandLineControl> _pCommandLine
-			, CStr _Executable
-			, NContainer::TCVector<CStr> _Arguments
-			, CStr _WorkingDirectory
-		)
+	auto CDesktopHelperActor::fp_RunInDesktop(NStorage::TCSharedPointer<CCommandLineControl> _pCommandLine, CStr _Executable, NContainer::TCVector<CStr> _Arguments, CStr _WorkingDirectory)
+		-> TCFuture<uint32>
 	{
 		// The calling host is only known before the first suspension
 		auto Auditor = f_Auditor();
@@ -92,15 +84,9 @@ namespace NMib::NAgentConfig::NDesktopHelper
 			{
 				switch (_State.f_GetTypeID())
 				{
-				case EProcessLaunchState_Launched:
-					LaunchedPromise.f_SetResult();
-					break;
-				case EProcessLaunchState_LaunchFailed:
-					LaunchedPromise.f_SetException(DMibErrorInstance(_State.f_Get<EProcessLaunchState_LaunchFailed>()));
-					break;
-				case EProcessLaunchState_Exited:
-					ExitedPromise.f_SetResult(_State.f_Get<EProcessLaunchState_Exited>());
-					break;
+				case EProcessLaunchState_Launched: LaunchedPromise.f_SetResult(); break;
+				case EProcessLaunchState_LaunchFailed: LaunchedPromise.f_SetException(DMibErrorInstance(_State.f_Get<EProcessLaunchState_LaunchFailed>())); break;
+				case EProcessLaunchState_Exited: ExitedPromise.f_SetResult(_State.f_Get<EProcessLaunchState_Exited>()); break;
 				}
 			}
 		;
@@ -184,12 +170,8 @@ namespace NMib::NAgentConfig::NDesktopHelper
 				{
 					switch (_Type)
 					{
-					case EStdInReaderOutputType_StdIn:
-						co_await ProcessLaunchActor(&CProcessLaunchActor::f_SendStdInBinary, fg_Move(_Input));
-						break;
-					case EStdInReaderOutputType_GeneralError:
-						*_pCommandLine %= _Error;
-						break;
+					case EStdInReaderOutputType_StdIn: co_await ProcessLaunchActor(&CProcessLaunchActor::f_SendStdInBinary, fg_Move(_Input)); break;
+					case EStdInReaderOutputType_GeneralError: *_pCommandLine %= _Error; break;
 					case EStdInReaderOutputType_EndOfFile:
 						if (!bEndOfFile)
 						{
