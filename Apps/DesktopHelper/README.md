@@ -37,6 +37,11 @@ session that holds the graphical login.
 /opt/Deploy/AgentConfig/DesktopHelper --daemon-remove
 ```
 
+On macOS the launch agent is installed with `ProcessType` `Interactive`, so that it and the commands it runs get the
+same scheduling priority as a shell in the desktop session. Without it launchd runs it as a standard daemon, at the
+utility priority of 20 with the CPU frequency held down. `--daemon-add` doesn't rewrite an existing plist, so after
+updating from a version without it, run `--daemon-remove` and then `--daemon-add`.
+
 ## Running commands
 
 ```bash
