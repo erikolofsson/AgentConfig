@@ -60,6 +60,13 @@ set -o pipefail
 
 Without this, piping output through `tail`, `head`, etc. will hide non-zero exit codes from the original command.
 
+### Searching the Code
+
+Search with ripgrep: the Grep and Glob tools, or `rg` in the shell. It skips `.git`, build output and the directories
+in `.rgignore` (`ImportCache`, `IC`), and still searches the sub-repositories. Don't run `grep -r`, `find` or similar
+over the checkout: they walk all of that, which is slow. When you need ignored files, name the path, or run
+`rg --no-ignore` on that path only.
+
 ### Common Build Commands
 
 ```bash
@@ -178,13 +185,34 @@ Always read `Malterlib/Test/CLAUDE.md` before writing or modifying tests in any 
 ### Repository Management
 - Check status: `./mib status`
 - Update all repos: `./mib update-repos`
-- Format the sources of every repository that sets `Repository.Format`: `./mib format`, or `./mib format --check` to report only
-- Validate the tracked text files of those repositories: `./mib validate`, `./mib validate --staged`, or `./mib validate --base REF`
-- Run the clang-tidy checks the `.clang-tidy` files enable over every repository that sets `Repository.Tidy {Enabled: true}` (`IncludeFiles`/`ExcludeFiles` wildcards, relative to the repository, narrow its files): `./mib tidy`, or `./mib tidy --staged` / `--base REF` for changed files; generate the build system first
+- Format, validate and tidy the sources: see [Formatting, Validation and Tidy](#formatting-validation-and-tidy)
 - `mib` supports git worktrees, but avoid them for agent-driven workflows in this repository. Many changes land inside the `Malterlib/*` sub-repositories, and syncing those changes back from the top-level worktree does not behave correctly.
 - Keep the main repository on a named branch when bootstrapping or running `./mib update-repos`. Detached `HEAD` checkouts are intentionally unsupported because sub-repositories are synchronized against the main branch.
 - The system uses git LFS for binary dependencies - ensure it's installed
 - Many directories under `Malterlib/` are separate Git repositories. When checking status or searching history, run Git commands inside the relevant subdirectory (`Malterlib/Concurrency`, `Malterlib/Cloud`, etc.) or use the helper scripts (`./mib git ...`) that fan out across sub-repos.
+
+### Formatting, Validation and Tidy
+The repositories that set `Repository.Format` are formatted by the Malterlib code formatter: their `.editorconfig` files
+opt files in with `malterlib_format` and set `max_line_length`. Every commit in them runs `Validate --staged` from the
+pre-commit hook, which refuses a commit whose added or changed lines are not formatted or are too long.
+
+- `./mib format` formats every opted-in file in place. Run it after editing and before committing, and commit what it
+  changes with your change. `--check` reports instead of writing and `--diff` prints the patches.
+- `./mib validate` reports without writing: the formatting of the opted-in files, and the line length of every other text
+  file with a `max_line_length`, such as scripts, workflows and Markdown, which `format` leaves alone. Run it before
+  reporting work done; `--staged` checks what the hook checks, and `--base <Ref>` the committed changes of a branch.
+- A line `format` cannot fix, such as a long string or comment, is reported by both; split it by hand.
+- `./mib tidy` runs the clang-tidy checks the `.clang-tidy` files enable over every repository that sets
+  `Repository.Tidy {Enabled: true}`, where `IncludeFiles` and `ExcludeFiles` wildcards, relative to the repository, narrow
+  its files. It needs a generated build system, since it uses the compile commands of the targets. A full run is slow
+  and repeating it checks everything again, so check your changes with `--staged` or `--base <Ref>`, which take the
+  changed files and the sources that include them, and run it in full only when that is what is needed. `--fix` applies
+  the fixes offered.
+- A build runs the same checks in each compile, through the plugin in the Malterlib clang, so `./mib tidy` is mostly for
+  `--fix` and for configurations that are not built. `MalterlibTidyInBuild false` in the user settings turns that off. CI
+  builds the Tests workspace, and runs `./mib tidy` for Linux arm64 Debug over every workspace.
+
+Fix what the hook reports instead of committing with `--no-verify`.
 
 ### Sub-Repositories
 A checkout is a tree of Git repositories that `mib` manages: the root, which is Malterlib itself or a product built on it,
@@ -267,6 +295,11 @@ checkout. `git pull` and `git merge` have no such hook, so after pulling, mergin
 `-f` moves a branch that already exists to the current commit, even backwards, in every repository, so preview it with
 `-p` (pretend) first. `-n <wildcard>` limits it to matching repositories.
 
+A branch stacked on another branch that hasn't landed yet has that branch as its base: `./mib base <Branch>` sets it for
+the root's current branch, `./mib base` shows it and `./mib base --clear` removes it. `./mib branch <Name> --base-branch
+<Branch>` creates a branch with its base. `repo-commit`, `status` and `list-commits` then compare with the base rather
+than the default branch; see Base Branches in `../BuildSystem/CLAUDE.md`.
+
 ### Committing and Pushing Sub-Repository Changes
 Commit in the sub-repository first, then record the new pins: `./mib repo-commit` commits every changed `.MRepo` up the
 chain (a `Malterlib/String` commit changes `Malterlib/Core/Malterlib.MRepo`, and that commit changes the root's
@@ -326,7 +359,8 @@ builds, so a tool can be built in Debug to debug it.
   `MalterlibHostToolsCopiedEnvironmentVariables`, copied from its own environment, so that settings meant for the build
   that runs them stay out, and `BuildSystem/HostTools` does not generate itself. Ninjas before MToolVersion 6, and the
   Visual Studio and Xcode generators, cannot replace the environment of a command, so the command unsets the other
-  exported variables itself.
+  exported variables itself. A compiler given in the environment (`PlatformToolsetCompiler`) is copied, so a build whose
+  only compiler is that one, as the training build of the LLVM distribution, builds its host tools with it.
 - Targets that run a tool depend on the target of its group and have the file of the tool among their inputs.
 - The groups build one at a time, in the ninja pool `HostToolsPool`, since they share one build directory.
 - Cross compiled builds run the tools of the host, so the targets of host tools only exist in that build system
@@ -379,6 +413,14 @@ host can: macOS and Linux on macOS, Windows on Windows. Do it in each build syst
 - Single statements do not require braces
 - Space between keyword and parenthesis
 - Use `struct`, not `class`, for Malterlib types. Do not add a leading `public:` section just to expose the default interface. Only use `class` when editing third-party code or when an external API requires that exact spelling.
+
+#### Class Layout
+- Sections come in the order public, protected, private. Write each access label once: no label that repeats the access already in effect, like `public:` after the public members a struct starts with, or a second `private:` after a private section.
+- Within a section, members come in this order: types (nested classes, enums, aliases), constructors and the destructor, other functions (also operators), constants, variables (static and non-static data members).
+- Constants are the static members that are `constexpr`, those declared `const` without their value whose definition is `constexpr` or isn't in the translation unit, and the enumerators a using declaration brings in, `using EKind::EKind_First;` and `using enum EKind;`. A static member declared `const` whose definition isn't `constexpr` is a variable. In a class template only the declaration in the class decides, and a static member declared `const` without its value isn't ordered.
+- A friend declaration that only declares, `friend struct CExample;` or `friend void fg_Run();`, comes first in the private section, before its types, or first in the protected section when a class has protected members but no private ones. A friend class in a class with no bases and no private or protected members of its own grants nothing; with a base it can be needed for inherited protected members or a private base. A friend function in a class without private or protected members can be what makes the function found by argument-dependent lookup, and isn't ordered. A friend that defines a function in the class, a hidden friend, and one a macro writes aren't ordered.
+- When an earlier member is needed to compile, like a private type a public declaration uses, keep it there with a `NOLINT(malterlib-member-order)` that gives the reason.
+- `malterlib-member-order` and `malterlib-struct-not-class` check these rules; `External/llvm-project/clang-tools-extra/docs/clang-tidy/checks/malterlib/member-order.rst` describes the full classification.
 
 #### Parameter Ownership
 - For non-coroutine function parameters that would otherwise take an owning object by value, choose explicit semantics: use `const &` when borrowing/read-only, or `&&` when consuming/moving from the argument.
@@ -1490,8 +1532,6 @@ MalterlibBuildShowProgress=false ./mib build Tests
 - `Source/Malterlib_String_FormatUtils.h/hpp` - Format utilities
 
 ### Unicode & Encoding
-- `Source/Malterlib_String_Iterator_Unicode.h/hpp` - Unicode iteration
-- `Source/Malterlib_String_Iterator_UTF*.h/hpp` - UTF encoding iterators
 - `Source/Malterlib_String_UnicodeConversion.h` - Conversion utilities
 - `Source/Malterlib_String_AnsiConversion.h` - ANSI conversion
 
