@@ -25,8 +25,12 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		constexpr CStr gc_Blocks[] = {gc_Str<"█">, gc_Str<"▉">, gc_Str<"▊">, gc_Str<"▋">, gc_Str<"▌">, gc_Str<"▍">, gc_Str<"▎">, gc_Str<"▏">};
 		constexpr CStr gc_Space = gc_Str<" ">;
 		constexpr CStr gc_DefaultModel = gc_Str<"M">;
+		// The limit covering every model, while the model in use has a scoped limit of its own: what Opus draws from
+		constexpr CStr gc_OtherModels = gc_Str<"O">;
 		constexpr CStr gc_Reset = gc_Str<"\x1b[0m">;
 		constexpr CStr gc_Dim = gc_Str<"\x1b[2m">;
+		// Between the dimmed labels and the undimmed context percent
+		constexpr CStr gc_Highlight = gc_Str<"\x1b[38;5;246m">;
 
 		constexpr CStr gc_BackgroundGreen = gc_Str<"\x1b[42m">;
 		constexpr CStr gc_BackgroundYellow = gc_Str<"\x1b[43m">;
@@ -283,6 +287,39 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			_Appender.f_AddString(pName, Len);
 		}
+
+		// A weekly limit as the line shows it
+		struct CShownLimit
+		{
+			CStr const *m_pLabel = nullptr;
+			fp64 m_Percent = 0.0;
+			int64 m_ResetsAt = 0;
+		};
+
+		// When the quota runs out at the pace so far in its window, none for a limit that is unused or outside its window
+		NStorage::TCOptional<fp64> fg_RunsOutAt(CShownLimit const &_Limit, int64 _Now)
+		{
+			int64 Elapsed = _Now - (_Limit.m_ResetsAt - gc_Week);
+
+			if (_Limit.m_Percent <= 0.0 || Elapsed <= 0 || Elapsed > gc_Week)
+				return {};
+
+			return fp64(_Now) + fg_Max((fp64(100.0) - _Limit.m_Percent) * (fp64(Elapsed) / _Limit.m_Percent), fp64(0.0));
+		}
+
+		bool fg_RunsOutBefore(CShownLimit const &_Left, CShownLimit const &_Right, int64 _Now)
+		{
+			NStorage::TCOptional<fp64> LeftRunsOut = fg_RunsOutAt(_Left, _Now);
+			NStorage::TCOptional<fp64> RightRunsOut = fg_RunsOutAt(_Right, _Now);
+
+			if (LeftRunsOut && RightRunsOut)
+				return *LeftRunsOut < *RightRunsOut;
+
+			if (LeftRunsOut || RightRunsOut)
+				return !!LeftRunsOut;
+
+			return _Left.m_Percent > _Right.m_Percent;
+		}
 	}
 
 	CStatusLineInput CStatusLineInput::fs_FromJson(NEncoding::CJsonSorted const &_Json)
@@ -358,46 +395,64 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			fg_AddContextBar(Appender, _Input.m_UsedPercentage, ZoneStart, *pForeground, *pBackground);
 			fg_AddNumber(Appender, " {}%", UntilCompact);
 
-			// One weekly limit for the model in use: its own scoped limit when it has one, otherwise
-			// the limit shared by all models, from the document when it carries one and from the
-			// cache when it does not, which is the case until the session has made a request.
-			// Labelled with the model's initial
+			// Both weekly limits: the scoped one with its model's initial, and the one covering every
+			// model, from the document when it carries one and from the cache until the session has
+			// made a request. The burn bar is for the one that runs out first, brighter than the other
 			CUsageLimit const *pScoped = _Cache.m_Claude && _Cache.m_Claude->m_Scoped ? &*_Cache.m_Claude->m_Scoped : nullptr;
 			CUsageLimit const *pAllModels = _Cache.m_Claude && _Cache.m_Claude->m_AllModels ? &*_Cache.m_Claude->m_AllModels : nullptr;
 			bool bScopedApplies = pScoped
 				&& (_Input.m_ModelName.f_IsEmpty() || _Input.m_ModelName.f_CmpNoCase(pScoped->m_Name, pScoped->m_Name.f_GetLen()) == 0)
 			;
 
-			if (bScopedApplies || _Input.m_bWeeklyPresent || pAllModels)
+			CShownLimit Limits[2];
+			aint nLimits = 0;
+
+			if (pScoped)
 			{
-				fp64 Percent;
-				int64 ResetsAt = _Input.m_WeeklyResetsAt ? *_Input.m_WeeklyResetsAt : 0;
+				Limits[nLimits++] = CShownLimit
+					{
+						.m_pLabel = pScoped->m_Name.f_IsEmpty() ? &gc_DefaultModel : &pScoped->m_Name
+						, .m_Percent = pScoped->m_Percent
+						, .m_ResetsAt = pScoped->m_ResetsAt
+					}
+				;
+			}
 
-				if (bScopedApplies)
+			if (_Input.m_bWeeklyPresent || pAllModels)
+			{
+				CShownLimit &Limit = Limits[nLimits++];
+
+				Limit.m_pLabel = bScopedApplies ? &gc_OtherModels : _Input.m_ModelName.f_IsEmpty() ? &gc_DefaultModel : &_Input.m_ModelName;
+
+				if (_Input.m_bWeeklyPresent)
 				{
-					Percent = pScoped->m_Percent;
-
-					if (pScoped->m_ResetsAt)
-						ResetsAt = pScoped->m_ResetsAt;
+					Limit.m_Percent = _Input.m_WeeklyPercent;
+					Limit.m_ResetsAt = _Input.m_WeeklyResetsAt ? *_Input.m_WeeklyResetsAt : pAllModels ? pAllModels->m_ResetsAt : 0;
 				}
-				else if (_Input.m_bWeeklyPresent)
-					Percent = _Input.m_WeeklyPercent;
 				else
 				{
-					Percent = pAllModels->m_Percent;
-					ResetsAt = pAllModels->m_ResetsAt;
+					Limit.m_Percent = pAllModels->m_Percent;
+					Limit.m_ResetsAt = pAllModels->m_ResetsAt;
 				}
+			}
+
+			if (nLimits)
+			{
+				aint iFirst = nLimits == 2 && fg_RunsOutBefore(Limits[1], Limits[0], _Now) ? 1 : 0;
 
 				// Two spaces set the Claude and codex usage sections apart from the context section
 				Appender += gc_Space;
-				Appender += gc_Space;
-				Appender += gc_Dim;
-				CStr const &Label = !_Input.m_ModelName.f_IsEmpty() ? _Input.m_ModelName : pScoped && !pScoped->m_Name.f_IsEmpty() ? pScoped->m_Name : gc_DefaultModel;
 
-				fg_AddAbbreviation(Appender, Label);
-				fg_AddNumber(Appender, ":{}%", fg_Floor(Percent));
-				Appender += gc_Reset;
-				fg_AddBurnBar(Appender, Percent, ResetsAt, gc_Week, _Now);
+				for (aint i = 0; i < nLimits; ++i)
+				{
+					Appender += gc_Space;
+					Appender += nLimits == 2 && i == iFirst ? gc_Highlight : gc_Dim;
+					fg_AddAbbreviation(Appender, *Limits[i].m_pLabel);
+					fg_AddNumber(Appender, ":{}%", fg_Floor(Limits[i].m_Percent));
+					Appender += gc_Reset;
+				}
+
+				fg_AddBurnBar(Appender, Limits[iFirst].m_Percent, Limits[iFirst].m_ResetsAt, gc_Week, _Now);
 			}
 
 			// A claimed refresh writes the entry before any fetch has succeeded

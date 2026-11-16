@@ -68,15 +68,18 @@ registry, so a second tool is added by writing another `CDistributedTool` subcla
 ## The rendered line
 
 ```
-[context bar] <n>%  <Model initial>:<n>% [burn bar, carrying when it runs out] <time to reset>  Cx:<n>% [burn bar] <time to reset>
+[context bar] <n>%  <Scoped initial>:<n>% O:<n>% [burn bar, carrying when it runs out] <time to reset>  Cx:<n>% [burn bar] <time to reset>
 ```
 
 Everything the line needs comes from the status document and one cache file, so a render is a
 single process: read stdin, read cache, print. Network and process spawning happen in a detached
 `--refresh` child, never on the render path.
 
-The weekly limit shown is the one that applies to the model in use: the model's own scoped limit
-when the usage API reports one for it, otherwise the limit shared by all models.
+Both weekly limits are shown: the one the usage API scopes to a model, such as Fable, with that
+model's initial, and the one shared by all models. The shared one is labelled `O`, what Opus draws
+from, while the model in use has the scoped limit, and with the initial of the model in use
+otherwise. The burn bar and its times are for the limit that runs out first at the pace so far, and
+that limit's label is a brighter grey than the other's.
 
 The burn bar compares quota spent against time elapsed in the window: half full means the quota is
 on track to land exactly on 100% at the reset. When the pace runs the quota out before the window
