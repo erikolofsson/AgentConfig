@@ -17,8 +17,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 	// The Codex weekly limit: `codex app-server` -> account/rateLimits/read, the same live call
 	// Codex's own /status makes; it starts no session and burns no quota. Falls back to the last
-	// snapshot in the newest session rollout, and fails with both reasons when that is missing too
-	NConcurrency::TCFuture<CCodexCache> fg_FetchCodexUsage();
+	// snapshot in the newest session rollout, and fails with both reasons when that is missing too.
+	// None when codex is not set up here: no executable and no session rollouts
+	NConcurrency::TCFuture<NStorage::TCOptional<CCodexCache>> fg_FetchCodexUsage();
 
 	// The success or failure of a result without its value, for reporting several at once
 	NConcurrency::TCAsyncResult<void> fg_Outcome(NConcurrency::CAsyncResult const &_Result);

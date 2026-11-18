@@ -76,6 +76,27 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			return {};
 		}
 
+		// Whether codex is set up here: an executable at the installed path or on the path, or session rollouts.
+		// Blocking file work
+		bool fg_CodexInstalledBlocking()
+		{
+			CStr Home = fg_GetHomeDirectory();
+
+			if (NFile::CFile::fs_FileExists(Home / ".local/bin/codex", NFile::EFileAttrib_File))
+				return true;
+
+			if (NFile::CFile::fs_FileExists(Home / ".codex/sessions", NFile::EFileAttrib_Directory))
+				return true;
+
+			for (CStr const &Directory : fg_GetSys()->f_GetEnvironmentVariable("PATH").f_Split<true>(":"))
+			{
+				if (NFile::CFile::fs_IsPathAbsolute(Directory) && NFile::CFile::fs_FileExists(Directory / "codex", NFile::EFileAttrib_File))
+					return true;
+			}
+
+			return false;
+		}
+
 		// The OAuth token, from the Keychain on macOS and otherwise from the credentials file
 		TCFuture<CStr> fg_ReadToken()
 		{
@@ -498,8 +519,25 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		co_return Claude;
 	}
 
-	TCFuture<CCodexCache> fg_FetchCodexUsage()
+	TCFuture<NStorage::TCOptional<CCodexCache>> fg_FetchCodexUsage()
 	{
+		bool bInstalled;
+		{
+			auto BlockingActorCheckout = fg_BlockingActor();
+
+			bInstalled = co_await
+				(
+					g_Dispatch(BlockingActorCheckout) / []
+					{
+						return fg_CodexInstalledBlocking();
+					}
+				)
+			;
+		}
+
+		if (!bInstalled)
+			co_return {};
+
 		auto FromAppServer = co_await fg_CodexFromAppServer().f_Wrap();
 
 		if (FromAppServer)

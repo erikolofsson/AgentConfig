@@ -112,7 +112,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 							"Names"_o= _o["--targets"]
 							, "Default"_o= "claude,codex"
 							, "Description"_o= "Comma separated entries to refresh: claude (the per-model weekly limit from the usage API) "
-							"and codex (the Codex weekly limit from codex app-server).\n"
+							"and codex (the Codex weekly limit from codex app-server, left out when codex is not set up).\n"
 						}
 						, "UnchangedSince?"_o=
 						{
@@ -297,13 +297,14 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		// The entries are claimed under the cache's lock before any work, so a second session that
 		// found the same entry stale finds it taken and leaves it alone
 		NContainer::TCVector<CStr> Claimed;
+		int64 ClaimedAt = fg_UnixNow();
 		{
 			auto BlockingActorCheckout = fg_BlockingActor();
 
 			Claimed = co_await
 				(
 					g_Dispatch(BlockingActorCheckout)
-					/ [Requested, _Observed, Now = fg_UnixNow()]
+					/ [Requested, _Observed, Now = ClaimedAt]
 					{
 						return fg_ClaimRefresh(Requested, _Observed, Now);
 					}
@@ -327,7 +328,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			co_return 0;
 
 		TCFuture<CClaudeCache> ClaudeFuture;
-		TCFuture<CCodexCache> CodexFuture;
+		TCFuture<NStorage::TCOptional<CCodexCache>> CodexFuture;
 
 		if (bClaude)
 			ClaudeFuture = fg_FetchClaudeUsage(fg_GetSys()->f_GetEnvironmentVariable("STATUSLINE_SEEN_WEEKLY"));
@@ -353,10 +354,14 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 		if (bCodex)
 		{
-			TCAsyncResult<CCodexCache> Codex = co_await (fg_Move(CodexFuture) % "Codex usage").f_Wrap();
+			TCAsyncResult<NStorage::TCOptional<CCodexCache>> Codex = co_await (fg_Move(CodexFuture) % "Codex usage").f_Wrap();
 
-			if (Codex)
-				CodexRefreshed = *Codex;
+			// Without codex set up the entry is one that has never been fetched, which the line leaves out, and
+			// the attempt keeps the check to once an interval
+			if (Codex && *Codex)
+				CodexRefreshed = **Codex;
+			else if (Codex)
+				CodexRefreshed = CCodexCache{.m_AttemptedAt = ClaimedAt};
 
 			Outcomes.f_Insert(fg_Outcome(Codex));
 		}
