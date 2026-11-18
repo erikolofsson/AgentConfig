@@ -231,6 +231,20 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			Claude.m_Scoped = fReadLimit(pClaude, "scoped");
 			Claude.m_AllModels = fReadLimit(pClaude, "all");
 
+			if (NEncoding::CJsonSorted const *pSpend = pClaude->f_GetMember("spend", NEncoding::EJsonType_Object))
+			{
+				CSpendLimit Spend;
+
+				Spend.m_Currency = fg_MemberText(pSpend, "currency");
+				Spend.m_UsedMinor = fg_JsonNumber(fg_JsonMember(pSpend, "used")).f_ToInt();
+				Spend.m_Exponent = fg_JsonNumber(fg_JsonMember(pSpend, "exponent")).f_ToInt();
+
+				if (NEncoding::CJsonSorted const *pLimit = fg_JsonMember(pSpend, "limit"))
+					Spend.m_LimitMinor = fg_JsonNumber(pLimit).f_ToInt();
+
+				Claude.m_Spend = Spend;
+			}
+
 			Return.m_Claude = Claude;
 		}
 
@@ -289,6 +303,19 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			if (m_Claude->m_AllModels)
 				fWriteLimit(Claude, "all", *m_Claude->m_AllModels);
+
+			if (m_Claude->m_Spend)
+			{
+				NEncoding::CJsonSorted &Spend = Claude["spend"];
+
+				Spend = NEncoding::EJsonType_Object;
+				Spend["currency"] = m_Claude->m_Spend->m_Currency;
+				Spend["used"] = m_Claude->m_Spend->m_UsedMinor;
+				Spend["exponent"] = m_Claude->m_Spend->m_Exponent;
+
+				if (m_Claude->m_Spend->m_LimitMinor)
+					Spend["limit"] = *m_Claude->m_Spend->m_LimitMinor;
+			}
 		}
 
 		if (m_Codex)

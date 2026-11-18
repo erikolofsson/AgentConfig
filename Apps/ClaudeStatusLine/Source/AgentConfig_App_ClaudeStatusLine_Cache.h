@@ -18,6 +18,15 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		int64 m_ResetsAt = 0;
 	};
 
+	// The monthly spend cap of an account billed by usage, such as an enterprise seat, in place of weekly limits
+	struct CSpendLimit
+	{
+		NStr::CStr m_Currency;
+		int64 m_UsedMinor = 0;
+		NStorage::TCOptional<int64> m_LimitMinor; // None when the spend is uncapped
+		int64 m_Exponent = 2;                     // The decimal places of the minor amounts
+	};
+
 	struct CClaudeCache
 	{
 		NStorage::TCOptional<CUsageLimit> m_Scoped;
@@ -25,6 +34,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		// rate_limits.seven_day. Kept because a document does not carry it until the session has
 		// made a request, and the line would otherwise have nothing to show at start-up
 		NStorage::TCOptional<CUsageLimit> m_AllModels;
+		NStorage::TCOptional<CSpendLimit> m_Spend;
 		NStr::CStr m_SeenWeekly;
 		int64 m_FetchedAt = 0;
 		// When a refresh was last started that has not (yet) replaced this entry. It ages the entry
