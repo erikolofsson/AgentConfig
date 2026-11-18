@@ -37,6 +37,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		fp64 m_Percent = 0.0;
 		int64 m_ResetsAt = 0;
 		int64 m_WindowSeconds = 0;
+		NStorage::TCOptional<fp64> m_Credits; // The credit balance, none when the account has none or they are unlimited
 		int64 m_FetchedAt = 0;
 		int64 m_SnapshotAt = 0;
 		int64 m_AttemptedAt = 0;

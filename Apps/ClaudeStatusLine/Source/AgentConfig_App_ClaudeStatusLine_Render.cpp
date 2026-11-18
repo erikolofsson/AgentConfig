@@ -171,8 +171,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		// orange <=150%, red above, and the time left until the reset after it. A pace that runs the
 		// quota out before the reset carries the time until that inside the filled part of the bar,
 		// which grows until it holds the text with a column to spare on either side; a full bar has
-		// room for the real ratio ahead of it. Nothing is added outside the window
-		void fg_AddBurnBar(CStr::CAppender &_Appender, fp64 _Used, int64 _ResetsAt, int64 _WindowSeconds, int64 _Now)
+		// room for the real ratio ahead of it. A quota that is used up is a full red bar with the
+		// credits left when there is a balance, and that says it is out when there is none. Nothing is added outside the window
+		void fg_AddBurnBar(CStr::CAppender &_Appender, fp64 _Used, int64 _ResetsAt, int64 _WindowSeconds, int64 _Now, NStorage::TCOptional<fp64> const &_Credits)
 		{
 			int64 Elapsed = _Now - (_ResetsAt - _WindowSeconds);
 
@@ -184,8 +185,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			if (Expected <= 0.0)
 				return;
 
+			bool bUsedUp = _Used >= 100.0;
 			fp64 RawRatio = _Used / Expected;
-			fp64 Ratio = fg_Min(RawRatio, fp64(2.0));
+			fp64 Ratio = bUsedUp ? fp64(2.0) : fg_Min(RawRatio, fp64(2.0));
 			int64 RatioPercent = fg_Round(Ratio * 100.0);
 
 			CStr const *pForeground;
@@ -218,7 +220,11 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			NTime::fg_FormatSecondsDurationToHumanReadable(Remaining, fp64(_ResetsAt - _Now));
 
-			if (_Used > 0.0 && RawRatio > 1.0)
+			if (bUsedUp && _Credits)
+				Text = NStr::CFStr64::CFormat("{} cred") << fg_Floor(*_Credits);
+			else if (bUsedUp)
+				Text = "out";
+			else if (_Used > 0.0 && RawRatio > 1.0)
 			{
 				// A full bar cannot show how far past the pace this is, so it says so in numbers
 				if (RawRatio >= 2.0)
@@ -483,7 +489,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					Appender += gc_Reset;
 				}
 
-				fg_AddBurnBar(Appender, Limits[iFirst].m_Percent, Limits[iFirst].m_ResetsAt, gc_Week, _Now);
+				fg_AddBurnBar(Appender, Limits[iFirst].m_Percent, Limits[iFirst].m_ResetsAt, gc_Week, _Now, {});
 			}
 
 			// A claimed refresh writes the entry before any fetch has succeeded
@@ -500,7 +506,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					Appender += gc_Str<"~">;
 
 				Appender += gc_Reset;
-				fg_AddBurnBar(Appender, Codex.m_Percent, Codex.m_ResetsAt, Codex.m_WindowSeconds, _Now);
+				fg_AddBurnBar(Appender, Codex.m_Percent, Codex.m_ResetsAt, Codex.m_WindowSeconds, _Now, Codex.m_Credits);
 			}
 		}
 

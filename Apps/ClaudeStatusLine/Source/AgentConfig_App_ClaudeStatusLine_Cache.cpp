@@ -240,6 +240,10 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			Codex.m_Percent = fg_JsonNumber(fg_JsonMember(pCodex, "percent"));
 			Codex.m_ResetsAt = fg_JsonNumber(fg_JsonMember(pCodex, "resetsAt")).f_ToInt();
 			Codex.m_WindowSeconds = fg_JsonNumber(fg_JsonMember(pCodex, "windowSeconds")).f_ToInt();
+
+			if (NEncoding::CJsonSorted const *pCredits = fg_JsonMember(pCodex, "credits"))
+				Codex.m_Credits = fg_JsonNumber(pCredits);
+
 			Codex.m_FetchedAt = fg_JsonNumber(fg_JsonMember(pCodex, "fetchedAt")).f_ToInt();
 			Codex.m_SnapshotAt = fg_JsonNumber(fg_JsonMember(pCodex, "snapshotAt")).f_ToInt();
 			Codex.m_AttemptedAt = fg_JsonNumber(fg_JsonMember(pCodex, "attemptedAt")).f_ToInt();
@@ -294,6 +298,10 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			fg_AssignNumber(Codex["percent"], m_Codex->m_Percent);
 			Codex["resetsAt"] = m_Codex->m_ResetsAt;
 			Codex["windowSeconds"] = m_Codex->m_WindowSeconds;
+
+			if (m_Codex->m_Credits)
+				fg_AssignNumber(Codex["credits"], *m_Codex->m_Credits);
+
 			Codex["fetchedAt"] = m_Codex->m_FetchedAt;
 			Codex["snapshotAt"] = m_Codex->m_SnapshotAt;
 

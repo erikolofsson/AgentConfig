@@ -86,8 +86,9 @@ The burn bar compares quota spent against time elapsed in the window: half full 
 on track to land exactly on 100% at the reset. When the pace runs the quota out before the window
 resets, the time until that is carried inside the filled part of the bar, which grows until it holds
 the text with a column to spare on either side. A bar that has saturated at 200% cannot show how far
-past the pace it is, so it puts the real ratio in front of the same text. The time after the bar is
-always the time until the window resets.
+past the pace it is, so it puts the real ratio in front of the same text. A quota that is used up
+is a full red bar that says `out`, or for Codex with a credit balance, the credits left as
+`<n> cred`. The time after the bar is always the time until the window resets.
 
 - Context window and the all-models weekly limit: the status document on stdin.
 - Per-model weekly limit: `api.anthropic.com/api/oauth/usage`, with the OAuth token from the macOS

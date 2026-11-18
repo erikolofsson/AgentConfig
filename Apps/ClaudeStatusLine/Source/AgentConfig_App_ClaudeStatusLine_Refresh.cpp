@@ -24,6 +24,19 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			int64 m_WindowSeconds = 0;
 		};
 
+		// The credit balance from a codex rate limit snapshot, tolerating both key styles. The balance is a decimal string
+		NStorage::TCOptional<fp64> fg_Credits(NEncoding::CJsonSorted const *_pRateLimits)
+		{
+			NEncoding::CJsonSorted const *pCredits = fg_JsonMember(_pRateLimits, "credits");
+			NEncoding::CJsonSorted const *pBalance = fg_JsonMember(pCredits, "balance");
+			NEncoding::CJsonSorted const *pUnlimited = fg_JsonMember(pCredits, "unlimited");
+
+			if (!pBalance || (pUnlimited && pUnlimited->f_AsBoolean(false)))
+				return {};
+
+			return fg_JsonNumber(pBalance);
+		}
+
 		NStorage::TCOptional<CWeeklyWindow> fg_WeeklyWindow(NEncoding::CJsonSorted const *_pRateLimits)
 		{
 			for (ch8 const *pKey : {"primary", "secondary"})
@@ -211,7 +224,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					if (!pID || !pID->f_IsInteger() || pID->f_Integer() != 1)
 						return;
 
-					NStorage::TCOptional<CWeeklyWindow> Window = fg_WeeklyWindow(fg_JsonMember(fg_JsonMember(&Message, "result"), "rateLimits"));
+					NEncoding::CJsonSorted const *pRateLimits = fg_JsonMember(fg_JsonMember(&Message, "result"), "rateLimits");
+					NStorage::TCOptional<CWeeklyWindow> Window = fg_WeeklyWindow(pRateLimits);
 
 					if (!Window)
 					{
@@ -229,6 +243,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 								.m_Percent = Window->m_Percent
 								, .m_ResetsAt = Window->m_ResetsAt
 								, .m_WindowSeconds = Window->m_WindowSeconds
+								, .m_Credits = fg_Credits(pRateLimits)
 								, .m_FetchedAt = Now
 								, .m_SnapshotAt = Now
 							}
@@ -332,6 +347,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			}
 
 			NStorage::TCOptional<CWeeklyWindow> Best;
+			NStorage::TCOptional<fp64> BestCredits;
 			CStr BestTimestamp;
 
 			for (CStr const &Line : Text.f_Split("\n"))
@@ -351,12 +367,14 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					continue;
 				}
 
-				NStorage::TCOptional<CWeeklyWindow> Window = fg_WeeklyWindow(fg_JsonMember(fg_JsonMember(&Entry, "payload"), "rate_limits"));
+				NEncoding::CJsonSorted const *pRateLimits = fg_JsonMember(fg_JsonMember(&Entry, "payload"), "rate_limits");
+				NStorage::TCOptional<CWeeklyWindow> Window = fg_WeeklyWindow(pRateLimits);
 
 				if (!Window)
 					continue;
 
 				Best = Window;
+				BestCredits = fg_Credits(pRateLimits);
 				BestTimestamp.f_Clear();
 
 				NEncoding::CJsonSorted const *pTimestamp = fg_JsonMember(&Entry, "timestamp");
@@ -383,6 +401,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					.m_Percent = Best->m_Percent
 					, .m_ResetsAt = Best->m_ResetsAt
 					, .m_WindowSeconds = Best->m_WindowSeconds
+					, .m_Credits = BestCredits
 					, .m_FetchedAt = fg_UnixNow()
 					, .m_SnapshotAt = SnapshotAt ? *SnapshotAt : 0
 				}
