@@ -95,6 +95,9 @@ Half a row cannot hold text, so the split bar puts what a bar would carry after 
 colour of that limit's pace. A cell has only two colours, so where both halves are filled in
 different colours, a half filled half is shown full.
 
+The Codex section is left out when codex is not set up: no `codex` executable at `~/.local/bin` or on the path, and
+no `~/.codex/sessions`. A refresh then succeeds without it.
+
 - Context window and the all-models weekly limit: the status document on stdin.
 - Per-model weekly limit: `api.anthropic.com/api/oauth/usage`, with the OAuth token from the macOS
   Keychain (or `~/.claude/.credentials.json`).
