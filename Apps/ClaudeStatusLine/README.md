@@ -79,7 +79,8 @@ Both weekly limits are shown: the one the usage API scopes to a model, such as F
 model's initial, and the one shared by all models. The shared one is labelled `O`, what Opus draws
 from, while the model in use has the scoped limit, and with the initial of the model in use
 otherwise. The burn bar and its times are for the limit that runs out first at the pace so far, and
-that limit's label is a brighter grey than the other's.
+that limit's percent is a brighter grey than the other's. The label of the limit the model in use
+draws from is blue.
 
 The burn bar compares quota spent against time elapsed in the window: half full means the quota is
 on track to land exactly on 100% at the reset. When the pace runs the quota out before the window

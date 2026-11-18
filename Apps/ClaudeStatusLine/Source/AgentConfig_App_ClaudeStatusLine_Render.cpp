@@ -31,6 +31,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		constexpr CStr gc_Dim = gc_Str<"\x1b[2m">;
 		// Between the dimmed labels and the undimmed context percent
 		constexpr CStr gc_Highlight = gc_Str<"\x1b[38;5;246m">;
+		constexpr CStr gc_ModelInUse = gc_Str<"\x1b[38;5;75m">;
 
 		constexpr CStr gc_BackgroundGreen = gc_Str<"\x1b[42m">;
 		constexpr CStr gc_BackgroundYellow = gc_Str<"\x1b[43m">;
@@ -403,13 +404,15 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			// Both weekly limits: the scoped one with its model's initial, and the one covering every
 			// model, from the document when it carries one and from the cache until the session has
-			// made a request. The burn bar is for the one that runs out first, brighter than the other
+			// made a request. The burn bar is for the one that runs out first, whose percent is brighter than
+			// the other's, and the label of the limit the model in use draws from is coloured
 			CUsageLimit const *pScoped = _Cache.m_Claude && _Cache.m_Claude->m_Scoped ? &*_Cache.m_Claude->m_Scoped : nullptr;
 			CUsageLimit const *pAllModels = _Cache.m_Claude && _Cache.m_Claude->m_AllModels ? &*_Cache.m_Claude->m_AllModels : nullptr;
 			bool bScopedApplies = pScoped && (_Input.m_ModelName.f_IsEmpty() || _Input.m_ModelName.f_CmpNoCase(pScoped->m_Name, pScoped->m_Name.f_GetLen()) == 0);
 
 			CShownLimit Limits[2];
 			aint nLimits = 0;
+			aint iInUse = 0;
 
 			if (pScoped)
 			{
@@ -424,6 +427,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			if (_Input.m_bWeeklyPresent || pAllModels)
 			{
+				if (!bScopedApplies)
+					iInUse = nLimits;
+
 				CShownLimit &Limit = Limits[nLimits++];
 
 				Limit.m_pLabel = bScopedApplies ? &gc_OtherModels : _Input.m_ModelName.f_IsEmpty() ? &gc_DefaultModel : &_Input.m_ModelName;
@@ -449,10 +455,29 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 				for (aint iLimit = 0; iLimit < nLimits; ++iLimit)
 				{
+					bool bInUse = nLimits == 2 && iLimit == iInUse;
+					bool bFirst = nLimits == 2 && iLimit == iFirst;
+
 					Appender += gc_Space;
-					Appender += nLimits == 2 && iLimit == iFirst ? gc_Highlight : gc_Dim;
+					Appender += bInUse ? gc_ModelInUse : gc_Dim;
 					fg_AddAbbreviation(Appender, *Limits[iLimit].m_pLabel);
-					fg_AddNumber(Appender, ":{}%", fg_Floor(Limits[iLimit].m_Percent));
+
+					if (bInUse)
+					{
+						Appender += gc_Reset;
+						Appender += gc_Dim;
+					}
+
+					Appender += gc_Str<":">;
+
+					// Dim is an attribute of its own, which a colour set after it would keep
+					if (bFirst)
+					{
+						Appender += gc_Reset;
+						Appender += gc_Highlight;
+					}
+
+					fg_AddNumber(Appender, "{}%", fg_Floor(Limits[iLimit].m_Percent));
 					Appender += gc_Reset;
 				}
 
