@@ -1,3 +1,6 @@
+// Copyright © Erik Olofsson
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 Import "Malterlib/Core/Malterlib.MHeader"
 
 Property
@@ -20,6 +23,60 @@ Property
 	Malterlib_AssumeMalterlibHost true
 	{
 		!!Malterlib_AssumeMalterlibHost undefined
+	}
+}
+
+Repository
+{
+	!!Repository.Type "Root"
+
+	MalterlibRepoReusePaths =+ [".vscode/*.json"]
+
+	// The files copied from Malterlib keep the copyright of Unbroken AB, and AGENTS.md is generated from CLAUDE.md and the
+	// Malterlib documentation it includes. The last matching REUSE annotation wins, so AGENTS.md comes after *.md.
+	License {
+		Header: ["Copyright © Erik Olofsson", "SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception"]
+		, Include: ["*"]
+		, Exclude: ["LICENSE", "LICENSES/*", "REUSE.toml"]
+		, Disallowed: ["LICENSE.Malterlib", "PROVENANCE.md"]
+		, HeaderOverrides: [
+			{
+				Path: ["mib", ".lldbinit", ".clangd", ".clang-tidy", "*/.clang-tidy", ".editorconfig", ".malterlib-format"]
+				, Header: ["Copyright © Unbroken AB", "SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception"]
+			}
+		]
+		, CommentStyles: [
+			{
+				Path: ["mib"]
+				, LinePrefix: "# "
+				, DetectShebang: true
+			}, {
+				Path: [".lldbinit", ".clangd", ".clang-tidy", "*/.clang-tidy", ".editorconfig", ".malterlib-format"]
+				, LinePrefix: "# "
+			}
+		]
+		, LicenseFiles: {
+			"LICENSES/Apache-2.0.txt": "Malterlib/Core/LICENSES/Apache-2.0.txt"->MakeAbsolute()
+			, "LICENSES/LLVM-exception.txt": "Malterlib/Core/LICENSES/LLVM-exception.txt"->MakeAbsolute()
+		}
+		, ReuseAnnotations: [
+			{
+				Path: Repository.MalterlibRepoReusePaths
+				, CopyrightText: "Erik Olofsson"
+				, LicenseIdentifier: "Apache-2.0 WITH LLVM-exception"
+				, Precedence: "override"
+			}, {
+				Path: ["AGENTS.md"]
+				, CopyrightText: "Unbroken AB and Erik Olofsson"
+				, LicenseIdentifier: "Apache-2.0 WITH LLVM-exception"
+				, Precedence: "override"
+			}
+		]
+	}
+
+	CheckLicense true
+	{
+		!!Repository.CheckLicense undefined
 	}
 }
 

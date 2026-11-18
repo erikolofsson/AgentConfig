@@ -1,0 +1,13 @@
+version = 1
+
+[[annotations]]
+path = ["ImportCache/**", "**/ImportCache/**", "IC/**", "**/IC/**", "**.MRepo", ".gitignore", "**/.gitignore", "**.md", ".vscode/**.json"]
+precedence = "override"
+SPDX-FileCopyrightText = "Erik Olofsson"
+SPDX-License-Identifier = "Apache-2.0 WITH LLVM-exception"
+
+[[annotations]]
+path = "AGENTS.md"
+precedence = "override"
+SPDX-FileCopyrightText = "Unbroken AB and Erik Olofsson"
+SPDX-License-Identifier = "Apache-2.0 WITH LLVM-exception"

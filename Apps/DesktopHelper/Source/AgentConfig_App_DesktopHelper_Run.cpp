@@ -1,4 +1,5 @@
 // Copyright © Erik Olofsson
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <Mib/Core/Core>
 #include <Mib/Concurrency/AsyncDestroy>
