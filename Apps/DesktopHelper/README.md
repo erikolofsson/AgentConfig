@@ -78,8 +78,8 @@ directory, the calling host, and then the exit status and duration, or why the r
 its caller. The entries of one run share a `[Run <n>]` tag, numbered from 0 each time the helper starts.
 
 ```
-<5JtmDkjNATBMeH6bX [erik@erikmbp09/DesktopHelper_CommandLine]> [Run 1] Running in '/opt/Source/AgentConfig': sh "-c" "echo hi; exit 3"
-<5JtmDkjNATBMeH6bX [erik@erikmbp09/DesktopHelper_CommandLine]> [Run 1] Exited with status 3 after 0.0 s
+<5JtmDkjNATBMeH6bX [user@host/DesktopHelper_CommandLine]> [Run 1] Running in '/opt/Source/AgentConfig': sh "-c" "echo hi; exit 3"
+<5JtmDkjNATBMeH6bX [user@host/DesktopHelper_CommandLine]> [Run 1] Exited with status 3 after 0.0 s
 ```
 
 When logs are rotated, which is checked at most once a day, logs older than a week move to `Log/Older`. Nothing is

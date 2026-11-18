@@ -73,7 +73,7 @@ registry, so a second tool is added by writing another `CDistributedTool` subcla
 
 Everything the line needs comes from the status document and one cache file, so a render is a
 single process: read stdin, read cache, print. Network and process spawning happen in a detached
-`--refresh` child, never on the render path.
+`--refresh` child, never on the render path; see [Performance](#performance).
 
 Both weekly limits are shown: the one the usage API scopes to a model, such as Fable, with that
 model's initial, and the one shared by all models. The shared one is labelled `O`, what Opus draws
@@ -102,3 +102,21 @@ different colours, a half filled half is shown full.
   `/status` makes. Falls back to the last snapshot in the newest session rollout.
 
 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` overrides the autocompact zone, the way it does for Claude Code.
+
+## Performance
+
+A render costs a few milliseconds from spawn to exit, measured over 1000 renders with the cache fresh,
+in Release builds:
+
+| Host | Median | Fastest | CPU time | `/usr/bin/true` |
+| --- | --- | --- | --- | --- |
+| Linux, Intel Core i7-13700K | 1.9–2.0 ms | 1.8 ms | 2.2 ms | 0.14 ms |
+| macOS, Apple M5 Pro | 5.9–6.0 ms | 5.5 ms | 4.2 ms | 0.57 ms |
+| macOS, Apple M1 Max | 9.5–10.2 ms | 8.7 ms | 7.3 ms | 1.0 ms |
+
+`/usr/bin/true` is the cost of starting any process on the same host. Starting a process accounts for at most 1 ms
+of the gap between Linux and macOS. Most of it is the CPU time the render itself takes on macOS.
+
+A render starts two threads besides the main thread: the one pool thread the app asks for, and a blocking actor that
+loads the distributed app's config and state databases. The [repository README](../../README.md#status-line-overhead)
+compares a render with bun and node.
