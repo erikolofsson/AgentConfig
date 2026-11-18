@@ -24,6 +24,15 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		// Compile-time strings, so the appends know their lengths
 		constexpr CStr gc_Blocks[] = {gc_Str<"█">, gc_Str<"▉">, gc_Str<"▊">, gc_Str<"▋">, gc_Str<"▌">, gc_Str<"▍">, gc_Str<"▎">, gc_Str<"▏">};
 		constexpr CStr gc_Space = gc_Str<" ">;
+		// Indexed by the halves of a cell filled from the left, in its top and its bottom row. The
+		// full cell is the upper half block, for a top and bottom in different colours
+		constexpr CStr gc_Quadrants[3][3] =
+			{
+				{gc_Str<" ">, gc_Str<"▖">, gc_Str<"▄">}
+				, {gc_Str<"▘">, gc_Str<"▌">, gc_Str<"▙">}
+				, {gc_Str<"▀">, gc_Str<"▛">, gc_Str<"▀">}
+			}
+		;
 		constexpr CStr gc_DefaultModel = gc_Str<"M">;
 		// The limit covering every model, while the model in use has a scoped limit of its own: what Opus draws from
 		constexpr CStr gc_OtherModels = gc_Str<"O">;
@@ -166,87 +175,98 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			Cells.f_End();
 		}
 
-		// Burn-rate bar: quota consumed relative to time elapsed in its window. Ratio 1.0 (on track
-		// to land exactly on 100% at reset) renders half full and saturates at 2.0. Green <=100%,
-		// orange <=150%, red above, and the time left until the reset after it. A pace that runs the
-		// quota out before the reset carries the time until that inside the filled part of the bar,
-		// which grows until it holds the text with a column to spare on either side; a full bar has
-		// room for the real ratio ahead of it. A quota that is used up is a full red bar with the
-		// credits left when there is a balance, and that says it is out when there is none. Nothing is added outside the window
-		void fg_AddBurnBar(CStr::CAppender &_Appender, fp64 _Used, int64 _ResetsAt, int64 _WindowSeconds, int64 _Now, NStorage::TCOptional<fp64> const &_Credits)
+		// The pace of a quota: what it consumed relative to the time elapsed in its window. Ratio 1.0 (on
+		// track to land exactly on 100% at reset) is a half full bar, which saturates at 2.0. Green
+		// <=100%, orange <=150%, red above. A pace that runs the quota out before the reset has the time
+		// until that as its text, and a saturated one the real ratio ahead of it. A quota that is used up
+		// is a full red bar with the credits left when there is a balance, and that says it is out when
+		// there is none. None outside the window
+		struct CBurn
+		{
+			fp64 m_Ratio = 0.0;
+			CStr const *m_pForeground = nullptr;
+			CStr const *m_pBackground = nullptr;
+			CStr const *m_pOnFill = nullptr;
+			NStr::CFStr64 m_Text;
+			NStr::CFStr64 m_Remaining; // The time left until the window resets
+		};
+
+		NStorage::TCOptional<CBurn> fg_Burn(fp64 _Used, int64 _ResetsAt, int64 _WindowSeconds, int64 _Now, NStorage::TCOptional<fp64> const &_Credits)
 		{
 			int64 Elapsed = _Now - (_ResetsAt - _WindowSeconds);
 
 			if (Elapsed <= 0 || Elapsed > _WindowSeconds)
-				return;
+				return {};
 
 			fp64 Expected = (fp64(Elapsed) / fp64(_WindowSeconds)) * 100.0;
 
 			if (Expected <= 0.0)
-				return;
+				return {};
 
 			bool bUsedUp = _Used >= 100.0;
 			fp64 RawRatio = _Used / Expected;
-			fp64 Ratio = bUsedUp ? fp64(2.0) : fg_Min(RawRatio, fp64(2.0));
-			int64 RatioPercent = fg_Round(Ratio * 100.0);
+			CBurn Burn;
 
-			CStr const *pForeground;
-			CStr const *pBackground;
-			CStr const *pOnFill;
+			Burn.m_Ratio = bUsedUp ? fp64(2.0) : fg_Min(RawRatio, fp64(2.0));
+
+			int64 RatioPercent = fg_Round(Burn.m_Ratio * 100.0);
 
 			if (RatioPercent > 150)
 			{
-				pForeground = &gc_ForegroundRed;
-				pBackground = &gc_BackgroundRed;
-				pOnFill = &gc_ForegroundOnDark;
+				Burn.m_pForeground = &gc_ForegroundRed;
+				Burn.m_pBackground = &gc_BackgroundRed;
+				Burn.m_pOnFill = &gc_ForegroundOnDark;
 			}
 			else if (RatioPercent > 100)
 			{
-				pForeground = &gc_ForegroundOrange;
-				pBackground = &gc_BackgroundOrange;
-				pOnFill = &gc_ForegroundOnLight;
+				Burn.m_pForeground = &gc_ForegroundOrange;
+				Burn.m_pBackground = &gc_BackgroundOrange;
+				Burn.m_pOnFill = &gc_ForegroundOnLight;
 			}
 			else
 			{
-				pForeground = &gc_ForegroundGreen;
-				pBackground = &gc_BackgroundGreen;
-				pOnFill = &gc_ForegroundOnDark;
+				Burn.m_pForeground = &gc_ForegroundGreen;
+				Burn.m_pBackground = &gc_BackgroundGreen;
+				Burn.m_pOnFill = &gc_ForegroundOnDark;
 			}
 
-			// The time left until the window resets, and when the quota is predicted to reach 100% at
-			// the pace so far. A ratio over 1.0 is exactly when that lands before the reset
-			NStr::CFStr64 Remaining;
-			NStr::CFStr64 Text;
+			NTime::fg_FormatSecondsDurationToHumanReadable(Burn.m_Remaining, fp64(_ResetsAt - _Now));
 
-			NTime::fg_FormatSecondsDurationToHumanReadable(Remaining, fp64(_ResetsAt - _Now));
-
+			// A ratio over 1.0 is exactly when the quota reaches 100% before the reset
 			if (bUsedUp && _Credits)
-				Text = NStr::CFStr64::CFormat("{} cred") << fg_Floor(*_Credits);
+				Burn.m_Text = NStr::CFStr64::CFormat("{} cred") << fg_Floor(*_Credits);
 			else if (bUsedUp)
-				Text = "out";
+				Burn.m_Text = "out";
 			else if (_Used > 0.0 && RawRatio > 1.0)
 			{
 				// A full bar cannot show how far past the pace this is, so it says so in numbers
 				if (RawRatio >= 2.0)
-					Text = NStr::CFStr64::CFormat("{}% ") << fg_Round(RawRatio * 100.0);
+					Burn.m_Text = NStr::CFStr64::CFormat("{}% ") << fg_Round(RawRatio * 100.0);
 
-				NTime::fg_FormatSecondsDurationToHumanReadable(Text, fg_Max((fp64(100.0) - _Used) * (fp64(Elapsed) / _Used), fp64(0.0)));
+				NTime::fg_FormatSecondsDurationToHumanReadable(Burn.m_Text, fg_Max((fp64(100.0) - _Used) * (fp64(Elapsed) / _Used), fp64(0.0)));
 			}
 
-			auto fFilledCells = [Ratio](int64 _nWidth)
+			return Burn;
+		}
+
+		// A burn bar, with the time left until the reset after it. The text is carried inside the filled
+		// part of the bar, which grows until it holds the text with a column to spare on either side
+		void fg_AddBurnBar(CStr::CAppender &_Appender, CBurn const &_Burn)
+		{
+			auto fFilledCells = [Ratio = _Burn.m_Ratio](int64 _nWidth)
 				{
 					return fg_Round((Ratio * fp64(_nWidth * 8)) / 2.0) / 8;
 				}
 			;
 
+			NStr::CFStr64 const &Text = _Burn.m_Text;
 			int64 nWidth = gc_nBurnBarChars;
 
-			// Grown until the filled part holds the text and a column on either side of it
 			while (!Text.f_IsEmpty() && nWidth < 64 && fFilledCells(nWidth) < int64(Text.f_GetLen()) + 2)
 				++nWidth;
 
 			int64 Total = nWidth * 8;
-			int64 Steps = fg_Round((Ratio * fp64(Total)) / 2.0);
+			int64 Steps = fg_Round((_Burn.m_Ratio * fp64(Total)) / 2.0);
 			int64 Half = Total / 2;
 			int64 TextStart = Text.f_IsEmpty() ? 0 : fg_Max(int64(1), (fFilledCells(nWidth) - int64(Text.f_GetLen())) / 2);
 
@@ -259,7 +279,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 				{
 					if (!Text.f_IsEmpty() && iCell >= TextStart && iCell < TextStart + int64(Text.f_GetLen()))
 					{
-						Cells.f_Text(*pBackground, *pOnFill, Text.f_GetStr() + (iCell - TextStart));
+						Cells.f_Text(*_Burn.m_pBackground, *_Burn.m_pOnFill, Text.f_GetStr() + (iCell - TextStart));
 						continue;
 					}
 
@@ -268,9 +288,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					CStr const &ZoneBackground = Start >= Half ? gc_BackgroundOver : gc_BackgroundEmpty;
 
 					if (Steps >= End)
-						Cells.f_Cell(*pBackground, nullptr, gc_Space);
+						Cells.f_Cell(*_Burn.m_pBackground, nullptr, gc_Space);
 					else if (Steps > Start)
-						Cells.f_Cell(ZoneBackground, pForeground, gc_Blocks[8 - (Steps - Start)]);
+						Cells.f_Cell(ZoneBackground, _Burn.m_pForeground, gc_Blocks[8 - (Steps - Start)]);
 					else
 						Cells.f_Cell(ZoneBackground, nullptr, gc_Space);
 				}
@@ -280,7 +300,56 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			_Appender += gc_Space;
 			_Appender += gc_Dim;
-			_Appender += Remaining;
+			_Appender += _Burn.m_Remaining;
+			_Appender += gc_Reset;
+		}
+
+		// Two burn bars in one, the top half of each cell for one and the bottom half for the other, in
+		// steps of half a cell. A half without a burn is empty. The text of _Shown cannot fit in half a
+		// row, so it follows the bar in its colour, and the time left until its reset after that
+		void fg_AddSplitBurnBar(CStr::CAppender &_Appender, NStorage::TCOptional<CBurn> const &_Top, NStorage::TCOptional<CBurn> const &_Bottom, CBurn const &_Shown)
+		{
+			int64 TopSteps = _Top ? fg_Round(_Top->m_Ratio * fp64(gc_nBurnBarChars)) : 0;
+			int64 BottomSteps = _Bottom ? fg_Round(_Bottom->m_Ratio * fp64(gc_nBurnBarChars)) : 0;
+
+			_Appender += gc_Space;
+
+			{
+				CCellWriter Cells(_Appender);
+
+				for (int64 iCell = 0; iCell < gc_nBurnBarChars; ++iCell)
+				{
+					int64 Top = fg_Clamp(TopSteps - iCell * 2, int64(0), int64(2));
+					int64 Bottom = fg_Clamp(BottomSteps - iCell * 2, int64(0), int64(2));
+					CStr const &ZoneBackground = iCell >= gc_nBurnBarChars / 2 ? gc_BackgroundOver : gc_BackgroundEmpty;
+
+					if (Top && Bottom && _Top->m_pForeground != _Bottom->m_pForeground)
+					{
+						// A cell has two colours, so where both halves are filled in different colours
+						// neither can also leave a quarter empty, and a half filled half is shown full
+						Cells.f_Cell(*_Bottom->m_pBackground, _Top->m_pForeground, gc_Quadrants[2][2]);
+					}
+					else if (Top == 2 && Bottom == 2)
+						Cells.f_Cell(*_Top->m_pBackground, nullptr, gc_Space);
+					else
+						Cells.f_Cell(ZoneBackground, Top ? _Top->m_pForeground : Bottom ? _Bottom->m_pForeground : nullptr, gc_Quadrants[Top][Bottom]);
+				}
+
+				Cells.f_End();
+			}
+
+			_Appender += gc_Space;
+
+			if (!_Shown.m_Text.f_IsEmpty())
+			{
+				_Appender += *_Shown.m_pForeground;
+				_Appender += _Shown.m_Text;
+				_Appender += gc_Reset;
+				_Appender += gc_Space;
+			}
+
+			_Appender += gc_Dim;
+			_Appender += _Shown.m_Remaining;
 			_Appender += gc_Reset;
 		}
 
@@ -412,8 +481,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			// Both weekly limits: the scoped one with its model's initial, and the one covering every
 			// model, from the document when it carries one and from the cache until the session has
-			// made a request. The burn bar is for the one that runs out first, whose percent is brighter than
-			// the other's, and the label of the limit the model in use draws from is coloured
+			// made a request. The percent of the one that runs out first is brighter than the other's. The
+			// label of the limit the model in use draws from is coloured, and the times after the bar are its
 			CUsageLimit const *pScoped = _Cache.m_Claude && _Cache.m_Claude->m_Scoped ? &*_Cache.m_Claude->m_Scoped : nullptr;
 			CUsageLimit const *pAllModels = _Cache.m_Claude && _Cache.m_Claude->m_AllModels ? &*_Cache.m_Claude->m_AllModels : nullptr;
 			bool bScopedApplies = pScoped && (_Input.m_ModelName.f_IsEmpty() || _Input.m_ModelName.f_CmpNoCase(pScoped->m_Name, pScoped->m_Name.f_GetLen()) == 0);
@@ -489,7 +558,16 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					Appender += gc_Reset;
 				}
 
-				fg_AddBurnBar(Appender, Limits[iFirst].m_Percent, Limits[iFirst].m_ResetsAt, gc_Week, _Now, {});
+				NStorage::TCOptional<CBurn> Burns[2];
+
+				for (aint iLimit = 0; iLimit < nLimits; ++iLimit)
+					Burns[iLimit] = fg_Burn(Limits[iLimit].m_Percent, Limits[iLimit].m_ResetsAt, gc_Week, _Now, {});
+
+				// The scoped limit is the top half and the one covering every model the bottom
+				if (nLimits == 2 && (Burns[0] || Burns[1]))
+					fg_AddSplitBurnBar(Appender, Burns[0], Burns[1], Burns[iInUse] ? *Burns[iInUse] : *Burns[1 - iInUse]);
+				else if (nLimits == 1 && Burns[0])
+					fg_AddBurnBar(Appender, *Burns[0]);
 			}
 
 			// A claimed refresh writes the entry before any fetch has succeeded
@@ -506,7 +584,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					Appender += gc_Str<"~">;
 
 				Appender += gc_Reset;
-				fg_AddBurnBar(Appender, Codex.m_Percent, Codex.m_ResetsAt, Codex.m_WindowSeconds, _Now, Codex.m_Credits);
+				if (NStorage::TCOptional<CBurn> Burn = fg_Burn(Codex.m_Percent, Codex.m_ResetsAt, Codex.m_WindowSeconds, _Now, Codex.m_Credits))
+					fg_AddBurnBar(Appender, *Burn);
 			}
 		}
 

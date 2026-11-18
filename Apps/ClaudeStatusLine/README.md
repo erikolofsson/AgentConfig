@@ -68,7 +68,7 @@ registry, so a second tool is added by writing another `CDistributedTool` subcla
 ## The rendered line
 
 ```
-[context bar] <n>%  <Scoped initial>:<n>% O:<n>% [burn bar, carrying when it runs out] <time to reset>  Cx:<n>% [burn bar] <time to reset>
+[context bar] <n>%  <Scoped initial>:<n>% O:<n>% [split burn bar] <when it runs out> <time to reset>  Cx:<n>% [burn bar, carrying when it runs out] <time to reset>
 ```
 
 Everything the line needs comes from the status document and one cache file, so a render is a
@@ -78,9 +78,10 @@ single process: read stdin, read cache, print. Network and process spawning happ
 Both weekly limits are shown: the one the usage API scopes to a model, such as Fable, with that
 model's initial, and the one shared by all models. The shared one is labelled `O`, what Opus draws
 from, while the model in use has the scoped limit, and with the initial of the model in use
-otherwise. The burn bar and its times are for the limit that runs out first at the pace so far, and
-that limit's percent is a brighter grey than the other's. The label of the limit the model in use
-draws from is blue.
+otherwise. They share a split burn bar: the top half of each cell is the scoped limit and the bottom
+half the shared one, in steps of half a cell. The label of the limit the model in use draws from is
+blue, and the times after the bar are that limit's. The percent of the limit that runs out first at
+the pace so far is a brighter grey than the other's.
 
 The burn bar compares quota spent against time elapsed in the window: half full means the quota is
 on track to land exactly on 100% at the reset. When the pace runs the quota out before the window
@@ -89,6 +90,10 @@ the text with a column to spare on either side. A bar that has saturated at 200%
 past the pace it is, so it puts the real ratio in front of the same text. A quota that is used up
 is a full red bar that says `out`, or for Codex with a credit balance, the credits left as
 `<n> cred`. The time after the bar is always the time until the window resets.
+
+Half a row cannot hold text, so the split bar puts what a bar would carry after it instead, in the
+colour of that limit's pace. A cell has only two colours, so where both halves are filled in
+different colours, a half filled half is shown full.
 
 - Context window and the all-models weekly limit: the status document on stdin.
 - Per-model weekly limit: `api.anthropic.com/api/oauth/usage`, with the OAuth token from the macOS
