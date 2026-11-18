@@ -78,6 +78,64 @@ Repository
 	{
 		!!Repository.CheckLicense undefined
 	}
+
+	// Adapted from the policy of the Malterlib repositories, for a public repository that takes issues and pull requests.
+	// The rulesets keep master from being deleted or force pushed, with no bypass, so they hold for the owner too. A
+	// pull request rule would stop the owner pushing to master directly, unless the owner could bypass it, and then it
+	// would not hold for the merges the owner makes. Pull requests merge by rebase, and Actions stay off, so pull
+	// requests from forks run nothing. GitHub lists the owner as a collaborator, so the permissions name the owner to
+	// keep RemoveOther from removing it.
+	Policy {
+		RepositorySettings: {
+			Name: `@(Repository.URL->GetPath()->GetFile())/@(Repository.URL->GetFileNoExt())`
+			, DefaultBranch: "master"
+			, IsPrivate: false
+			, HasIssues: true
+			, HasProjects: false
+			, HasWiki: false
+			, HasDiscussions: false
+			, HasDownloads: false
+			, AllowSquashMerge: false
+			, AllowMergeCommit: false
+			, AllowRebaseMerge: true
+			, AllowAutoMerge: false
+			, AllowUpdateBranch: false
+			, DeleteBranchOnMerge: true
+			, Security_SecretScanning: true
+			, Security_SecretScanningPushProtection: true
+		}
+		, Permissions: {
+			Users: {"erikolofsson": "admin"}
+			, RemoveOther: true
+		}
+		, GenericRules: {
+			"Linear history": {
+				Target: "Branch"
+				, IncludeRefNames: ["~ALL"]
+				, BypassActors: []
+				, Rules: [{Type: "LinearHistory"}]
+				, Enforcement: "Active"
+			}
+			, "Protect master": {
+				Target: "Branch"
+				, IncludeRefNames: ["~DEFAULT_BRANCH"]
+				, BypassActors: []
+				, Rules: [{Type: "Deletion"}, {Type: "FastForwardOnly"}]
+				, Enforcement: "Active"
+			}
+		}
+		, ActionsSettings: {
+			ActionsEnabled: false
+		}
+	}
+	{
+		!!Repository.Policy undefined
+	}
+
+	ApplyPolicy true
+	{
+		!!Repository.ApplyPolicy undefined
+	}
 }
 
 Import "AgentConfig.MHeader"
