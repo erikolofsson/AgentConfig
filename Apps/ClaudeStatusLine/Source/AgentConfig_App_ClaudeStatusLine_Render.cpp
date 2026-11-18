@@ -142,7 +142,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			{
 				int64 Start = iCell * 8;
 				int64 End = Start + 8;
-				CStr const &ZoneBackground = Start >= _ZoneStart ? gc_BackgroundAutocompact : gc_BackgroundEmpty;
+				// A partly filled cell has one background for what follows the fill, so in a cell the zone
+				// starts in, the zone takes it to stay visible
+				CStr const &ZoneBackground = End > _ZoneStart ? gc_BackgroundAutocompact : gc_BackgroundEmpty;
 
 				if (Filled >= End)
 					Cells.f_Cell(_Background, nullptr, gc_Space);
