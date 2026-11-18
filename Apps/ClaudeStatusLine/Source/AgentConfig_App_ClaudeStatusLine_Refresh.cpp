@@ -76,6 +76,51 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			return {};
 		}
 
+		// The monthly spend cap from the usage API answer: "spend", or the older "extra_usage" without it. None when spending is off
+		NStorage::TCOptional<CSpendLimit> fg_SpendLimit(NEncoding::CJsonSorted const &_Data)
+		{
+			if (NEncoding::CJsonSorted const *pSpend = fg_JsonMember(&_Data, "spend"))
+			{
+				NEncoding::CJsonSorted const *pEnabled = fg_JsonMember(pSpend, "enabled");
+				NEncoding::CJsonSorted const *pUsed = fg_JsonMember(pSpend, "used");
+
+				if (!pUsed || !pEnabled || !pEnabled->f_AsBoolean(false))
+					return {};
+
+				CSpendLimit Spend;
+
+				Spend.m_Currency = fg_JsonText(fg_JsonMember(pUsed, "currency"));
+				Spend.m_UsedMinor = fg_JsonNumber(fg_JsonMember(pUsed, "amount_minor")).f_ToInt();
+
+				if (NEncoding::CJsonSorted const *pExponent = fg_JsonMember(pUsed, "exponent"))
+					Spend.m_Exponent = fg_JsonNumber(pExponent).f_ToInt();
+
+				if (NEncoding::CJsonSorted const *pLimitAmount = fg_JsonMember(fg_JsonMember(pSpend, "limit"), "amount_minor"))
+					Spend.m_LimitMinor = fg_JsonNumber(pLimitAmount).f_ToInt();
+
+				return Spend;
+			}
+
+			NEncoding::CJsonSorted const *pExtraUsage = fg_JsonMember(&_Data, "extra_usage");
+			NEncoding::CJsonSorted const *pEnabled = fg_JsonMember(pExtraUsage, "is_enabled");
+
+			if (!pEnabled || !pEnabled->f_AsBoolean(false))
+				return {};
+
+			CSpendLimit Spend;
+
+			Spend.m_Currency = fg_JsonText(fg_JsonMember(pExtraUsage, "currency"));
+			Spend.m_UsedMinor = fg_JsonNumber(fg_JsonMember(pExtraUsage, "used_credits")).f_Floor().f_ToInt();
+
+			if (NEncoding::CJsonSorted const *pDecimals = fg_JsonMember(pExtraUsage, "decimal_places"))
+				Spend.m_Exponent = fg_JsonNumber(pDecimals).f_ToInt();
+
+			if (NEncoding::CJsonSorted const *pLimit = fg_JsonMember(pExtraUsage, "monthly_limit"))
+				Spend.m_LimitMinor = fg_JsonNumber(pLimit).f_ToInt();
+
+			return Spend;
+		}
+
 		// Whether codex is set up here: an executable at the installed path or on the path, or session rollouts.
 		// Blocking file work
 		bool fg_CodexInstalledBlocking()
@@ -515,6 +560,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					Claude.m_AllModels = Limit;
 			}
 		}
+
+		Claude.m_Spend = fg_SpendLimit(Data);
 
 		co_return Claude;
 	}

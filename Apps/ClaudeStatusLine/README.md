@@ -95,12 +95,21 @@ Half a row cannot hold text, so the split bar puts what a bar would carry after 
 colour of that limit's pace. A cell has only two colours, so where both halves are filled in
 different colours, a half filled half is shown full.
 
+An account billed by usage, such as an enterprise seat with a spend cap, has no weekly limits. Its line shows
+the share of the cap spent so far this month instead, as `$:<n>%`, with a burn bar paced over the calendar
+month in UTC, which is when the cap is taken to reset: the usage API does not say.
+
+```
+[context bar] <n>%  $:<n>% [burn bar, carrying when it runs out] <time to reset>
+```
+
 The Codex section is left out when codex is not set up: no `codex` executable at `~/.local/bin` or on the path, and
 no `~/.codex/sessions`. A refresh then succeeds without it.
 
 - Context window and the all-models weekly limit: the status document on stdin.
 - Per-model weekly limit: `api.anthropic.com/api/oauth/usage`, with the OAuth token from the macOS
   Keychain (or `~/.claude/.credentials.json`).
+- Monthly spend cap: the `spend` object of the same usage API answer.
 - Codex weekly limit: `codex app-server` -> `account/rateLimits/read`, the same live call Codex's own
   `/status` makes. Falls back to the last snapshot in the newest session rollout.
 

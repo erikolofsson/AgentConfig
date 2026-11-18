@@ -3,6 +3,7 @@
 
 #include <Mib/Core/Core>
 #include <Mib/String/Appender>
+#include <Mib/Time/Time>
 #include <Mib/Time/TimeSpan>
 
 #include "AgentConfig_App_ClaudeStatusLine_Render.h"
@@ -354,6 +355,77 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			_Appender += gc_Reset;
 		}
 
+		// The calendar month in UTC that _Now is in, as [start, end) in Unix seconds. The usage API does not say
+		// when the spend cap resets, and a monthly cap is taken to reset with the month
+		void fg_MonthWindow(int64 _Now, int64 &o_Start, int64 &o_End)
+		{
+			// The convert keeps a pointer to the time it is given
+			NTime::CTime Now = NTime::CTimeConvert::fs_FromUnixSeconds(uint64(_Now));
+			NTime::CTimeConvert NowConvert(Now);
+			int64 Year = NowConvert.f_GetYear();
+			aint Month = NowConvert.f_GetMonth();
+
+			o_Start = int64(NTime::CTimeConvert(NTime::CTimeConvert::fs_CreateTime(Year, Month)).f_UnixSeconds());
+
+			if (Month == 12)
+				o_End = int64(NTime::CTimeConvert(NTime::CTimeConvert::fs_CreateTime(Year + 1, 1)).f_UnixSeconds());
+			else
+				o_End = int64(NTime::CTimeConvert(NTime::CTimeConvert::fs_CreateTime(Year, Month + 1)).f_UnixSeconds());
+		}
+
+		// A minor amount in whole units of its currency, with the dollar sign in front for USD
+		void fg_AddAmount(CStr::CAppender &_Appender, int64 _Minor, int64 _Exponent, bool _bDollars)
+		{
+			int64 Divisor = 1;
+
+			for (int64 iDigit = 0; iDigit < _Exponent; ++iDigit)
+				Divisor *= 10;
+
+			if (_bDollars)
+				_Appender += gc_Str<"$">;
+
+			fg_AddNumber(_Appender, "{}", _Minor / Divisor);
+		}
+
+		// The spend so far this month against the cap, with a burn bar paced over the month when there is a cap
+		void fg_AddSpend(CStr::CAppender &_Appender, CSpendLimit const &_Spend, int64 _Now)
+		{
+			bool bDollars = _Spend.m_Currency.f_IsEmpty() || _Spend.m_Currency == "USD";
+
+			_Appender += gc_Space;
+			_Appender += gc_Space;
+			_Appender += gc_Dim;
+
+			// Without a cap there is no percent, so the amount spent is shown instead
+			if (!_Spend.m_LimitMinor || *_Spend.m_LimitMinor <= 0)
+			{
+				fg_AddAmount(_Appender, _Spend.m_UsedMinor, _Spend.m_Exponent, bDollars);
+
+				if (!bDollars)
+				{
+					_Appender += gc_Space;
+					_Appender += _Spend.m_Currency;
+				}
+
+				_Appender += gc_Reset;
+				return;
+			}
+
+			fp64 Percent = (fp64(_Spend.m_UsedMinor) * 100.0) / fp64(*_Spend.m_LimitMinor);
+
+			_Appender += bDollars ? gc_Str<"$"> : _Spend.m_Currency;
+			fg_AddNumber(_Appender, ":{}%", fg_Floor(Percent));
+			_Appender += gc_Reset;
+
+			int64 MonthStart;
+			int64 MonthEnd;
+
+			fg_MonthWindow(_Now, MonthStart, MonthEnd);
+
+			if (NStorage::TCOptional<CBurn> Burn = fg_Burn(Percent, MonthEnd, MonthEnd - MonthStart, _Now, {}))
+				fg_AddBurnBar(_Appender, *Burn);
+		}
+
 		// The first character of the name, or "M" without one
 		void fg_AddAbbreviation(CStr::CAppender &_Appender, CStr const &_Name)
 		{
@@ -570,6 +642,10 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 				else if (nLimits == 1 && Burns[0])
 					fg_AddBurnBar(Appender, *Burns[0]);
 			}
+
+			// An account billed by usage has a monthly spend cap rather than weekly limits
+			if (!nLimits && _Cache.m_Claude && _Cache.m_Claude->m_Spend)
+				fg_AddSpend(Appender, *_Cache.m_Claude->m_Spend, _Now);
 
 			// A claimed refresh writes the entry before any fetch has succeeded
 			if (_Cache.m_Codex && _Cache.m_Codex->m_FetchedAt > 0)
