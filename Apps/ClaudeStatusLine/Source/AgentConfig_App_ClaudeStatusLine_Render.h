@@ -26,6 +26,13 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		bool m_bWeeklyPresent = false;
 	};
 
+	// The variables of Claude Code's environment that move where autocompact starts
+	struct CAutocompactSettings
+	{
+		fp64 m_PctOverride = 0.0;    // CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, 0 when unset
+		int64 m_MaxOutputTokens = 0; // CLAUDE_CODE_MAX_OUTPUT_TOKENS, 0 when unset
+	};
+
 	struct CRenderResult
 	{
 		NStr::CStr m_Line;
@@ -33,5 +40,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		NContainer::TCVector<NStr::CStr> m_StaleTargets;
 	};
 
-	CRenderResult fg_RenderStatusLine(CStatusLineInput const &_Input, CStatusCache const &_Cache, int64 _Now, fp64 _AutocompactOverride);
+	NStorage::TCOptional<int64> fg_ParseClaudeCodeInteger(NStr::CStr const &_Value);
+	int64 fg_AutocompactReserveTenths(fp64 _ContextWindowSize, CAutocompactSettings const &_Settings);
+	CRenderResult fg_RenderStatusLine(CStatusLineInput const &_Input, CStatusCache const &_Cache, int64 _Now, CAutocompactSettings const &_Autocompact);
 }

@@ -200,9 +200,14 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 		CStatusLineInput Input = CStatusLineInput::fs_FromJson(Json);
 		CStatusCache Cache = co_await fg_Move(CacheRead);
-		fp64 AutocompactOverride = fg_GetSys()->f_GetEnvironmentVariable("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE").f_Trim().f_ToFloatExact(fp64(0.0));
+		CAutocompactSettings Autocompact
+			{
+				.m_PctOverride = fg_GetSys()->f_GetEnvironmentVariable("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE").f_Trim().f_ToFloatExact(fp64(0.0))
+				, .m_MaxOutputTokens = fg_ParseClaudeCodeInteger(fg_GetSys()->f_GetEnvironmentVariable("CLAUDE_CODE_MAX_OUTPUT_TOKENS")).f_Get(int64(0))
+			}
+		;
 		int64 Now = fg_UnixNow();
-		CRenderResult Render = fg_RenderStatusLine(Input, Cache, Now, AutocompactOverride);
+		CRenderResult Render = fg_RenderStatusLine(Input, Cache, Now, Autocompact);
 
 		// The spawn is the slow part of a render that finds something stale, so it goes to the
 		// blocking actor the app already started, as soon as the targets are known, and overlaps

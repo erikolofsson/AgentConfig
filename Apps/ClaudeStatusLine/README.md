@@ -60,6 +60,7 @@ and zero leaves the setting out.
 | `Source/AgentConfig_App_ClaudeStatusLine_Render.h/.cpp` | The bars and the line, from the status document and the cache. |
 | `Source/AgentConfig_App_ClaudeStatusLine_Cache.h/.cpp` | `~/.claude/statusline-cache.json`, read on every render and written by the refresh. |
 | `Source/AgentConfig_App_ClaudeStatusLine_Refresh.h/.cpp` | The usage API and codex app-server lookups behind `--refresh`. |
+| `Test/` | Tests of the render, in the `Tests` workspace. |
 
 `CDistributedToolAppActor` finds every `CDistributedTool` implementation through the runtime type
 registry, so a second tool is added by writing another `CDistributedTool` subclass with a
@@ -113,7 +114,11 @@ no `~/.codex/sessions`. A refresh then succeeds without it.
 - Codex weekly limit: `codex app-server` -> `account/rateLimits/read`, the same live call Codex's own
   `/status` makes. Falls back to the last snapshot in the newest session rollout.
 
-`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` overrides the autocompact zone, the way it does for Claude Code.
+The autocompact zone at the end of the context bar is what Claude Code keeps free: 20k tokens for output, or
+`CLAUDE_CODE_MAX_OUTPUT_TOKENS` when that is less, which makes its effective window, and a 13k buffer below that,
+where compaction starts. `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` is the percent of the effective window at which compaction
+starts instead, so on a 200k window `80` starts it at 144k. Claude Code ignores an override that would start compaction
+later than the buffer does, and so does the line.
 
 ## Performance
 

@@ -37,3 +37,14 @@ Property
 		!!AgentConfig_App_Enable_ClaudeStatusLine true
 	}
 }
+
+Property
+{
+	MalterlibTests =+ "AgentConfig_App_ClaudeStatusLine"
+	MalterlibTestFiles_AgentConfig_App_ClaudeStatusLine: [type(CEntity)] =
+	[
+		"Test/*"->MakeAbsolute()
+		, "Source/AgentConfig_App_ClaudeStatusLine_Render.cpp"->MakeAbsolute()
+		, "Source/AgentConfig_App_ClaudeStatusLine_Cache.cpp"->MakeAbsolute()
+	]
+}

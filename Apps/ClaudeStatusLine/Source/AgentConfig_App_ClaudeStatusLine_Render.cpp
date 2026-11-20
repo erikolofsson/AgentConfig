@@ -3,8 +3,12 @@
 
 #include <Mib/Core/Core>
 #include <Mib/String/Appender>
+#include <Mib/String/UnicodeConversion>
 #include <Mib/Time/Time>
 #include <Mib/Time/TimeSpan>
+
+#include <cmath>
+#include <cstdlib>
 
 #include "AgentConfig_App_ClaudeStatusLine_Render.h"
 
@@ -18,7 +22,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		constexpr int64 gc_ClaudeMaxAge = 600; // ...and refresh at least this often
 		constexpr int64 gc_CodexMaxAge = 180; // spawning the codex binary costs ~0.5s
 		constexpr int64 gc_CodexStaleAfter = 43200; // 12h: mark a fallback snapshot as stale
-		constexpr int64 gc_AutocompactTokens = 33000;
+		constexpr int64 gc_OutputReserveTokens = 20000; // What Claude Code keeps for output when the maximum output is larger
+		constexpr int64 gc_SummaryBufferTokens = 13000; // What Claude Code keeps below the effective window for the summary
+		constexpr int64 gc_DefaultContextWindowTokens = 200000;
 		constexpr int64 gc_Week = 604800;
 		constexpr aint gc_nContextBarChars = 12;
 		constexpr aint gc_nBurnBarChars = 12;
@@ -415,6 +421,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			_Appender += bDollars ? gc_Str<"$"> : _Spend.m_Currency;
 			fg_AddNumber(_Appender, ":{}%", fg_Floor(Percent));
+
 			_Appender += gc_Reset;
 
 			int64 MonthStart;
@@ -509,19 +516,260 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		return Return;
 	}
 
-	CRenderResult fg_RenderStatusLine(CStatusLineInput const &_Input, CStatusCache const &_Cache, int64 _Now, fp64 _AutocompactOverride)
+	namespace
+	{
+		// What JavaScript's String.prototype.trim removes: white space and line terminators
+		bool fg_IsJavaScriptWhiteSpace(ch32 _Character)
+		{
+			switch (_Character)
+			{
+			case 0x0009:
+			case 0x000A:
+			case 0x000B:
+			case 0x000C:
+			case 0x000D:
+			case 0x0020:
+			case 0x00A0:
+			case 0x1680:
+			case 0x2028:
+			case 0x2029:
+			case 0x202F:
+			case 0x205F:
+			case 0x3000:
+			case 0xFEFF:
+				return true;
+			}
+
+			return _Character >= 0x2000 && _Character <= 0x200A;
+		}
+
+		// The code points of _String, with the byte offset each one starts at and one past the last
+		struct CCodePoints
+		{
+			NContainer::TCVector<ch32> m_Characters;
+			NContainer::TCVector<umint> m_Offsets;
+		};
+
+		CCodePoints fg_CodePoints(CStr const &_String)
+		{
+			CCodePoints CodePoints;
+			umint Offset = 0;
+			umint Length = _String.f_GetLen();
+
+			while (Offset < Length)
+			{
+				NStr::CStrIteratorUTF8 iCharacter(_String.f_GetStr() + Offset, Length - Offset);
+				umint CharacterLength = fg_Max(iCharacter.f_GetLastWholeCodePointPos(), umint(1));
+
+				CodePoints.m_Characters.f_Insert(*iCharacter);
+				CodePoints.m_Offsets.f_Insert(Offset);
+				Offset += CharacterLength;
+			}
+
+			CodePoints.m_Offsets.f_Insert(Length);
+
+			return CodePoints;
+		}
+	}
+
+	// An integer variable of Claude Code's environment, read the way Claude Code reads it: digits grouped by thousands with
+	// one separator throughout, `_`, `,`, a space, a no-break space or a narrow no-break space, a number in exponent notation
+	// that is an integer, or else the digits the value starts with. None when there are no such digits
+	NStorage::TCOptional<int64> fg_ParseClaudeCodeInteger(NStr::CStr const &_Value)
+	{
+		constexpr int64 c_Limit = int64(1) << 53; // Larger values only need to be larger than any output limit
+
+		CCodePoints CodePoints = fg_CodePoints(_Value);
+		umint iFirst = 0;
+		umint iLast = CodePoints.m_Characters.f_GetLen();
+
+		while (iFirst < iLast && fg_IsJavaScriptWhiteSpace(CodePoints.m_Characters[iFirst]))
+			++iFirst;
+
+		while (iLast > iFirst && fg_IsJavaScriptWhiteSpace(CodePoints.m_Characters[iLast - 1]))
+			--iLast;
+
+		umint StartOffset = CodePoints.m_Offsets[iFirst];
+		CStr Value = _Value.f_Extract(StartOffset, CodePoints.m_Offsets[iLast] - StartOffset);
+		// Claude Code limits the length in UTF-16 code units. A value its patterns match only has characters of the basic
+		// multilingual plane, which are one unit each, and longer values fall back to the leading digits either way
+		umint nCodeUnits = iLast - iFirst;
+		ch8 const *pStart = Value.f_GetStr();
+		ch8 const *pEnd = pStart + Value.f_GetLen();
+		ch8 const *pParse = pStart;
+		bool bNegative = false;
+
+		if (pParse < pEnd && (*pParse == '+' || *pParse == '-'))
+			bNegative = *pParse++ == '-';
+
+		auto fIsDigit = [&](ch8 const *_pChar)
+			{
+				return _pChar < pEnd && *_pChar >= '0' && *_pChar <= '9';
+			}
+		;
+
+		auto fSeparatorLength = [&](ch8 const *_pChar) -> umint
+			{
+				umint nLeft = umint(pEnd - _pChar);
+
+				if (nLeft >= 1 && (*_pChar == '_' || *_pChar == ',' || *_pChar == ' '))
+					return 1;
+				if (nLeft >= 2 && NStr::fg_StrCmp(_pChar, "\xC2\xA0", 2) == 0)
+					return 2;
+				if (nLeft >= 3 && NStr::fg_StrCmp(_pChar, "\xE2\x80\xAF", 3) == 0)
+					return 3;
+
+				return 0;
+			}
+		;
+
+		auto fSigned = [&](int64 _Magnitude)
+			{
+				return bNegative ? -_Magnitude : _Magnitude;
+			}
+		;
+
+		if (nCodeUnits <= 32)
+		{
+			// [+-]?(\d+(\.\d*)?|\.\d+)[eE][+-]?\d+, which Claude Code converts to a correctly rounded double before it
+			// checks for an integer. strtod rounds correctly, where the framework's float parser can land just below
+			{
+				ch8 const *pNumber = pParse;
+				bool bAnyDigit = false;
+
+				while (fIsDigit(pNumber))
+				{
+					++pNumber;
+					bAnyDigit = true;
+				}
+
+				if (pNumber < pEnd && *pNumber == '.')
+				{
+					++pNumber;
+
+					while (fIsDigit(pNumber))
+					{
+						++pNumber;
+						bAnyDigit = true;
+					}
+				}
+
+				if (bAnyDigit && pNumber < pEnd && (*pNumber == 'e' || *pNumber == 'E'))
+				{
+					++pNumber;
+
+					if (pNumber < pEnd && (*pNumber == '+' || *pNumber == '-'))
+						++pNumber;
+
+					bool bExponentDigit = false;
+
+					while (fIsDigit(pNumber))
+					{
+						++pNumber;
+						bExponentDigit = true;
+					}
+
+					if (bExponentDigit && pNumber == pEnd)
+					{
+						double Number = std::strtod(Value.f_GetStr(), nullptr);
+
+						if (!std::isfinite(Number) || std::floor(Number) != Number)
+							return {};
+
+						if (std::fabs(Number) >= double(c_Limit))
+							return Number < 0.0 ? -c_Limit : c_Limit;
+
+						return int64(Number);
+					}
+				}
+			}
+
+			ch8 const *pGroup = pParse;
+			int64 Grouped = 0;
+			umint nLeadingDigits = 0;
+
+			while (fIsDigit(pGroup) && nLeadingDigits < 3)
+			{
+				Grouped = Grouped * 10 + (*pGroup++ - '0');
+				++nLeadingDigits;
+			}
+
+			umint SeparatorLength = nLeadingDigits ? fSeparatorLength(pGroup) : 0;
+
+			if (SeparatorLength)
+			{
+				ch8 const *pSeparator = pGroup;
+				umint nGroups = 0;
+				bool bGrouped = true;
+
+				while (pGroup < pEnd)
+				{
+					if (fSeparatorLength(pGroup) != SeparatorLength || NStr::fg_StrCmp(pGroup, pSeparator, SeparatorLength) != 0)
+					{
+						bGrouped = false;
+						break;
+					}
+
+					pGroup += SeparatorLength;
+
+					for (umint iDigit = 0; iDigit < 3; ++iDigit)
+					{
+						if (!fIsDigit(pGroup))
+						{
+							bGrouped = false;
+							break;
+						}
+
+						Grouped = fg_Min(Grouped * 10 + (*pGroup++ - '0'), c_Limit);
+					}
+
+					if (!bGrouped)
+						break;
+
+					++nGroups;
+				}
+
+				if (bGrouped && nGroups)
+					return fSigned(Grouped);
+			}
+		}
+
+		int64 Leading = 0;
+
+		if (!fIsDigit(pParse))
+			return {};
+
+		while (fIsDigit(pParse))
+			Leading = fg_Min(Leading * 10 + (*pParse++ - '0'), c_Limit);
+
+		return fSigned(Leading);
+	}
+
+	// The share of the context window after the point where autocompact starts, in tenths of a percent, worked out as
+	// Claude Code does. Its effective window is the window less the output reserve, the maximum output up to 20k, and
+	// compaction starts the summary buffer below it. The model's own maximum output is not in the status document, so
+	// without CLAUDE_CODE_MAX_OUTPUT_TOKENS the reserve is 20k. CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is the percent of the
+	// effective window at which compaction starts instead when that is earlier, and counts only above 0 and up to 100.
+	// An unknown window size counts as the default window
+	int64 fg_AutocompactReserveTenths(fp64 _ContextWindowSize, CAutocompactSettings const &_Settings)
+	{
+		fp64 ContextWindowSize = _ContextWindowSize > 0.0 ? _ContextWindowSize : fp64(gc_DefaultContextWindowTokens);
+		int64 OutputReserve = _Settings.m_MaxOutputTokens > 0 ? fg_Min(_Settings.m_MaxOutputTokens, gc_OutputReserveTokens) : gc_OutputReserveTokens;
+		fp64 EffectiveWindow = ContextWindowSize - fp64(OutputReserve);
+		fp64 Threshold = EffectiveWindow - fp64(gc_SummaryBufferTokens);
+		fp64 PctOverride = _Settings.m_PctOverride;
+
+		if (PctOverride > 0.0 && PctOverride <= 100.0)
+			Threshold = fg_Min(fp64(fg_Floor(EffectiveWindow * (PctOverride / 100.0))), Threshold);
+
+		return fg_Floor((ContextWindowSize - Threshold) * 1000.0 / ContextWindowSize);
+	}
+
+	CRenderResult fg_RenderStatusLine(CStatusLineInput const &_Input, CStatusCache const &_Cache, int64 _Now, CAutocompactSettings const &_Autocompact)
 	{
 		CRenderResult Return;
 
-		// Autocompact reserve is a fixed ~33k tokens, so as a share of the window it shrinks as
-		// the window grows. Expressed in tenths of a percent
-		int64 Tenths;
-
-		if (_Input.m_ContextWindowSize > 0.0 && _AutocompactOverride == 0.0)
-			Tenths = fg_Floor(fp64(gc_AutocompactTokens * 1000) / _Input.m_ContextWindowSize);
-		else
-			Tenths = fg_Max(fg_Floor(_AutocompactOverride * 10.0), int64(165));
-
+		int64 Tenths = fg_AutocompactReserveTenths(_Input.m_ContextWindowSize, _Autocompact);
 		int64 Percent = fg_Floor(_Input.m_UsedPercentage);
 		CStr const *pForeground;
 		CStr const *pBackground;
@@ -628,6 +876,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					}
 
 					fg_AddNumber(Appender, "{}%", fg_Floor(Limits[iLimit].m_Percent));
+
 					Appender += gc_Reset;
 				}
 
