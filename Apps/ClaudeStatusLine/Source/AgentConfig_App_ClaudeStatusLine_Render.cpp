@@ -765,6 +765,16 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		return fg_Floor((ContextWindowSize - Threshold) * 1000.0 / ContextWindowSize);
 	}
 
+	// Whether the model in use, as Claude Code displays it, draws from the limit scoped to a model. An unknown model is
+	// taken to be the scoped one, and a scoped limit without a model name is taken to cover none
+	bool fg_ScopedLimitApplies(NStr::CStr const &_ModelName, CUsageLimit const &_Scoped)
+	{
+		if (_Scoped.m_Name.f_IsEmpty())
+			return false;
+
+		return _ModelName.f_IsEmpty() || _ModelName.f_CmpNoCase(_Scoped.m_Name, _Scoped.m_Name.f_GetLen()) == 0;
+	}
+
 	CRenderResult fg_RenderStatusLine(CStatusLineInput const &_Input, CStatusCache const &_Cache, int64 _Now, CAutocompactSettings const &_Autocompact)
 	{
 		CRenderResult Return;
@@ -806,7 +816,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			// label of the limit the model in use draws from is coloured, and the times after the bar are its
 			CUsageLimit const *pScoped = _Cache.m_Claude && _Cache.m_Claude->m_Scoped ? &*_Cache.m_Claude->m_Scoped : nullptr;
 			CUsageLimit const *pAllModels = _Cache.m_Claude && _Cache.m_Claude->m_AllModels ? &*_Cache.m_Claude->m_AllModels : nullptr;
-			bool bScopedApplies = pScoped && (_Input.m_ModelName.f_IsEmpty() || _Input.m_ModelName.f_CmpNoCase(pScoped->m_Name, pScoped->m_Name.f_GetLen()) == 0);
+			bool bScopedApplies = pScoped && fg_ScopedLimitApplies(_Input.m_ModelName, *pScoped);
 
 			CShownLimit Limits[2];
 			aint nLimits = 0;

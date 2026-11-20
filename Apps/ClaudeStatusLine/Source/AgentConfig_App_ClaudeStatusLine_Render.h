@@ -42,5 +42,6 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 	NStorage::TCOptional<int64> fg_ParseClaudeCodeInteger(NStr::CStr const &_Value);
 	int64 fg_AutocompactReserveTenths(fp64 _ContextWindowSize, CAutocompactSettings const &_Settings);
+	bool fg_ScopedLimitApplies(NStr::CStr const &_ModelName, CUsageLimit const &_Scoped);
 	CRenderResult fg_RenderStatusLine(CStatusLineInput const &_Input, CStatusCache const &_Cache, int64 _Now, CAutocompactSettings const &_Autocompact);
 }

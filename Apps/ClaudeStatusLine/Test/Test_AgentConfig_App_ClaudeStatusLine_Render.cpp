@@ -90,6 +90,24 @@ namespace
 			fCheck("NoDigits", "many", {});
 			fCheck("Empty", "", {});
 		};
+
+		DMibTestSuite("ScopedLimitApplies")
+		{
+			CUsageLimit Fable{.m_Name = "Fable"};
+
+			DMibExpectTrue(fg_ScopedLimitApplies("Fable 5.2", Fable));
+			DMibExpectTrue(fg_ScopedLimitApplies("fable 5.2", Fable));
+			DMibExpectTrue(fg_ScopedLimitApplies("", Fable));
+			DMibExpectFalse(fg_ScopedLimitApplies("Opus 5.5", Fable));
+
+			DMibTestCategory("WithoutName")
+			{
+				CUsageLimit Unnamed;
+
+				DMibExpectFalse(fg_ScopedLimitApplies("Opus 5.5", Unnamed));
+				DMibExpectFalse(fg_ScopedLimitApplies("", Unnamed));
+			};
+		};
 	}
 }
 
