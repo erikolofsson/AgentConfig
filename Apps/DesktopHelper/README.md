@@ -59,6 +59,12 @@ Put `--` before the executable so that its arguments are not parsed as options o
 - The process gets the environment of the helper, that is of the desktop session, not that of the caller.
   An executable without a path is looked up in the PATH of the helper, which for a launchd user agent is only
   the system directories. Use an absolute path, or `/usr/bin/env NAME=VALUE ...` to set variables.
+- `--env NAME,...` copies the named variables from the caller's environment to the process, over those of the
+  desktop session, such as `DesktopHelper --run --env GITHUB_TOKEN,NPM_TOKEN -- gh auth status`. Given twice, the
+  last one wins. The helper asks the caller
+  for them, and the caller only gives out the variables its own `--env` names. A variable that is not set in the
+  caller's environment fails the run. `PATH` is refused, since it would change which executable a bare name runs; set
+  it with `/usr/bin/env PATH=...` instead.
 - The process runs in a process group of its own. Ctrl-C, SIGHUP or SIGTERM to the caller stops that group,
   which includes the processes the executable started. When the caller disappears without a signal, such as
   after `kill -9`, the group is stopped once the helper gives up on the caller's connection, after ten minutes.
@@ -96,8 +102,9 @@ its caller. The entries of one run share a `[Run <n>]` tag, numbered from 0 each
 ```
 
 When logs are rotated, which is checked at most once a day, logs older than a week move to `Log/Older`. Nothing is
-deleted. Each
-`--run` also writes a short log of its own connection to `Log/CommandLine`.
+deleted, so a secret in the command line stays on disk in the log, also one set with `/usr/bin/env NAME=VALUE`. Pass
+secrets in variables with `--env`, whose values the log leaves out, on stdin or in a file the command reads instead.
+Each `--run` also writes a short log of its own connection to `Log/CommandLine`.
 
 ## Structure
 

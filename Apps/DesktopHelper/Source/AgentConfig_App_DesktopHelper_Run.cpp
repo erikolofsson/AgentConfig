@@ -27,6 +27,24 @@ namespace NMib::NAgentConfig::NDesktopHelper
 
 		constexpr fp64 gc_StopGracePeriod = 5.0;
 
+		bool fg_IsVariableName(CStr const &_Name)
+		{
+			ch8 const *pParse = _Name.f_GetStr();
+
+			if (!*pParse || (*pParse >= '0' && *pParse <= '9'))
+				return false;
+
+			for (; *pParse; ++pParse)
+			{
+				ch8 Character = *pParse;
+
+				if (!((Character >= 'a' && Character <= 'z') || (Character >= 'A' && Character <= 'Z') || (Character >= '0' && Character <= '9') || Character == '_'))
+					return false;
+			}
+
+			return true;
+		}
+
 		// Stops the process group, then kills what is left of the process tree once the process has stopped or ignored the stop
 		// for the grace period. The stop resolves when the process exits, while descendants that ignore it can keep running
 		TCFuture<void> fg_StopRun(TCActor<CProcessLaunchActor> _ProcessLaunchActor, CDistributedAppAuditor _Auditor, uint64 _iRun)
@@ -42,7 +60,14 @@ namespace NMib::NAgentConfig::NDesktopHelper
 		}
 	}
 
-	auto CDesktopHelperActor::fp_RunInDesktop(NStorage::TCSharedPointer<CCommandLineControl> _pCommandLine, CStr _Executable, NContainer::TCVector<CStr> _Arguments, CStr _WorkingDirectory)
+	auto CDesktopHelperActor::fp_RunInDesktop
+		(
+			NStorage::TCSharedPointer<CCommandLineControl> _pCommandLine
+			, CStr _Executable
+			, NContainer::TCVector<CStr> _Arguments
+			, CStr _WorkingDirectory
+			, NContainer::TCVector<CStr> _EnvironmentNames
+		)
 		-> TCFuture<uint32>
 	{
 		// The calling host is only known before the first suspension
@@ -53,7 +78,35 @@ namespace NMib::NAgentConfig::NDesktopHelper
 		Command.f_Insert(_Arguments);
 		CStr CommandLine = CProcessLaunchParams::fs_GetParamsBash(Command);
 
-		Auditor.f_Info("[Run {}] Running in '{}': {}"_f << iRun << _WorkingDirectory << CommandLine);
+		// The launcher looks a bare executable name up in the PATH of the process's environment, so a forwarded PATH would
+		// change which executable runs. PATH holds no secret, and /usr/bin/env PATH=... sets it with the lookup in view
+		// Checked before anything is logged, and not repeated in the error, since an entry such as NAME=VALUE holds a value
+		for (CStr const &Name : _EnvironmentNames)
+		{
+			if (!fg_IsVariableName(Name))
+				co_return Auditor.f_Exception("[Run {}] --env takes the names of variables, made of letters, digits and _, not values"_f << iRun);
+		}
+
+		bool bForwardsPath = false;
+
+		for (CStr const &Name : _EnvironmentNames)
+		{
+#ifdef DPlatformFamily_Windows
+			// Windows looks environment variables up without regard to case
+			if (Name.f_CmpNoCase("PATH") == 0)
+#else
+			if (Name == "PATH")
+#endif
+				bForwardsPath = true;
+		}
+
+		if (bForwardsPath)
+			co_return Auditor.f_Exception("[Run {}] PATH cannot be passed with --env. Set it with /usr/bin/env PATH=... instead"_f << iRun);
+
+		if (_EnvironmentNames.f_IsEmpty())
+			Auditor.f_Info("[Run {}] Running in '{}': {}"_f << iRun << _WorkingDirectory << CommandLine);
+		else
+			Auditor.f_Info("[Run {}] Running in '{}' with {vs} from the command line: {}"_f << iRun << _WorkingDirectory << _EnvironmentNames << CommandLine);
 
 #ifdef DPlatformFamily_macOS
 		// On macOS the user daemon feature of the session is whether it holds the graphical login. Elsewhere it is whether user
@@ -77,6 +130,37 @@ namespace NMib::NAgentConfig::NDesktopHelper
 		Launch.m_Params.m_bCreateNewProcessGroup = true;
 		// Prompts and progress output reach the caller without waiting for a newline
 		Launch.m_bWholeLineOutput = false;
+
+		if (!_EnvironmentNames.f_IsEmpty())
+		{
+			if (!_pCommandLine->f_SupportsQuery())
+				co_return Auditor.f_Exception("[Run {}] The command line is too old to pass variables with --env"_f << iRun);
+
+			NEncoding::CEJsonSorted Query;
+			auto &Names = Query["Environment"];
+
+			Names = NEncoding::EEJsonType_Array;
+
+			for (CStr const &Name : _EnvironmentNames)
+				Names.f_Insert(Name);
+
+			auto Answer = co_await _pCommandLine->f_Query(fg_Move(Query)).f_Wrap();
+
+			if (!Answer)
+				co_return Auditor.f_Exception("[Run {}] Getting the variables of --env failed: {}"_f << iRun << Answer.f_GetExceptionStr());
+
+			auto const *pEnvironment = Answer->f_GetMember("Environment", NEncoding::EEJsonType_Object);
+
+			for (CStr const &Name : _EnvironmentNames)
+			{
+				auto const *pValue = pEnvironment ? pEnvironment->f_GetMember(Name, NEncoding::EEJsonType_String) : nullptr;
+
+				if (!pValue)
+					co_return Auditor.f_Exception("[Run {}] The command line did not give the variable {}"_f << iRun << Name);
+
+				Launch.m_Params.m_Environment[Name] = pValue->f_String();
+			}
+		}
 
 		TCPromiseFuturePair<void> LaunchedPromise;
 		TCPromiseFuturePair<uint32> ExitedPromise;

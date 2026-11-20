@@ -29,6 +29,7 @@ namespace NMib::NAgentConfig::NDesktopHelper
 				, NStr::CStr _Executable
 				, NContainer::TCVector<NStr::CStr> _Arguments
 				, NStr::CStr _WorkingDirectory
+				, NContainer::TCVector<NStr::CStr> _EnvironmentNames
 			)
 			-> NConcurrency::TCFuture<uint32>
 		;
