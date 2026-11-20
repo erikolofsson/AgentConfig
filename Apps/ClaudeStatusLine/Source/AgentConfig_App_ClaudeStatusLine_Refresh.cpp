@@ -522,7 +522,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 		CClaudeCache Claude;
 
-		Claude.m_FetchedAt = fg_UnixNow();
+		Claude.m_FetchedAtMs = fg_UnixNowMilliseconds();
+		Claude.m_FetchedAt = Claude.m_FetchedAtMs / 1000;
 		Claude.m_SeenWeekly = _SeenWeekly;
 
 		NEncoding::CJsonSorted const *pLimits = fg_JsonMember(&Data, "limits");

@@ -114,6 +114,10 @@ no `~/.codex/sessions`. A refresh then succeeds without it.
 - Codex weekly limit: `codex app-server` -> `account/rateLimits/read`, the same live call Codex's own
   `/status` makes. Falls back to the last snapshot in the newest session rollout.
 
+A `~` after a percent marks usage that may be out of date: Claude usage from the cache when no refresh has succeeded
+for an hour, and a Codex rollout snapshot older than 12 hours. A failed Claude refresh keeps the usage it had and
+records why it failed as `lastError` in the Claude entry of `~/.claude/statusline-cache.json`.
+
 The autocompact zone at the end of the context bar is what Claude Code keeps free: 20k tokens for output, or
 `CLAUDE_CODE_MAX_OUTPUT_TOKENS` when that is less, which makes its effective window, and a 13k buffer below that,
 where compaction starts. `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` is the percent of the effective window at which compaction

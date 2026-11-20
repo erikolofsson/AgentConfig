@@ -36,7 +36,10 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		NStorage::TCOptional<CUsageLimit> m_AllModels;
 		NStorage::TCOptional<CSpendLimit> m_Spend;
 		NStr::CStr m_SeenWeekly;
+		NStr::CStr m_LastError;  // Why the refresh of m_ClaimID failed; a claim or a refresh that succeeded clears it
+		NStr::CStr m_ClaimID;    // The refresh that claimed the entry last, empty once a refresh has replaced it
 		int64 m_FetchedAt = 0;
+		int64 m_FetchedAtMs = 0; // m_FetchedAt in milliseconds, so that saves of fetches in the same second keep their order
 		// When a refresh was last started that has not (yet) replaced this entry. It ages the entry
 		// the same way m_FetchedAt does, so a refresh that is still running, or that failed, is
 		// not started again on every render
@@ -77,14 +80,48 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 	// claimed, each stamped with _Now so nothing else refreshes them again for an interval. An
 	// entry that anything touched at or after _Observed belongs to whoever touched it and is left
 	// alone, which is how sessions sharing the cache end up doing the work once. An _Observed of 0
-	// claims whatever is asked for
-	NContainer::TCVector<NStr::CStr> fg_ClaimRefresh(NContainer::TCVector<NStr::CStr> const &_Targets, int64 _Observed, int64 _Now);
+	// claims whatever is asked for. The Claude entry also gets _ClaimID
+	struct CRefreshClaim
+	{
+		NContainer::TCVector<NStr::CStr> m_Targets;
+		int64 m_ClaudeFetchOrder = 0; // When the Claude usage held at the claim was fetched, in milliseconds
+	};
+
+	CRefreshClaim fg_ClaimRefresh(NContainer::TCVector<NStr::CStr> const &_Targets, int64 _Observed, int64 _Now, NStr::CStr const &_ClaimID);
 
 	// Writes the entries a refresh fetched into the cache under its lock, keeping whatever another
-	// session wrote in the meantime for the entries this one did not fetch
-	void fg_SaveRefreshed(NStorage::TCOptional<CClaudeCache> const &_Claude, NStorage::TCOptional<CCodexCache> const &_Codex);
+	// session wrote in the meantime for the entries this one did not fetch. The Claude entry is
+	// merged with fg_ApplyClaudeRefresh
+	void fg_SaveRefreshed
+		(
+			NStorage::TCOptional<CClaudeCache> const &_Claude
+			, NStr::CStr const &_ClaudeError
+			, NStorage::TCOptional<CCodexCache> const &_Codex
+			, NStr::CStr const &_ClaimID
+			, int64 _ClaudeFetchOrderAtClaim
+		)
+	;
+
+	// Merges the outcome of the Claude refresh that claimed the entry with _ClaimID into the cache. Usage replaces the entry,
+	// unless another refresh has saved usage since the claim, _ClaudeFetchOrderAtClaim, that was fetched later. Only a save
+	// since the claim counts, so that a clock moved back does not keep the entry from ever being replaced. A refresh claimed since keeps its claim and any error it recorded, so
+	// that its own outcome still applies. A non-empty _ClaudeError, when _Claude is none, is recorded while the entry still has _ClaimID
+	void fg_ApplyClaudeRefresh
+		(
+			CStatusCache &o_Cache
+			, NStorage::TCOptional<CClaudeCache> const &_Claude
+			, NStr::CStr const &_ClaudeError
+			, NStr::CStr const &_ClaimID
+			, int64 _ClaudeFetchOrderAtClaim
+		)
+	;
+
+	// _Error as valid UTF-8, with any invalid sequence replaced, and cut where a code point ends to at most _MaxBytes,
+	// followed by "..." when it was cut
+	NStr::CStr fg_CacheErrorText(NStr::CStr const &_Error, umint _MaxBytes);
 
 	int64 fg_UnixNow();
+	int64 fg_UnixNowMilliseconds();
 
 	// A member that exists and is not null, the way `a?.b ?? c` treats members
 	NEncoding::CJsonSorted const *fg_JsonMember(NEncoding::CJsonSorted const *_pParent, ch8 const *_pName);

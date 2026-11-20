@@ -108,6 +108,174 @@ namespace
 				DMibExpectFalse(fg_ScopedLimitApplies("", Unnamed));
 			};
 		};
+
+		DMibTestSuite("ClaudeStale")
+		{
+			int64 Now = 1800000000;
+			CStatusLineInput Input;
+			Input.m_ModelName = "Fable 5.2";
+
+			auto fRender = [&](int64 _FetchedAt)
+				{
+					CClaudeCache Claude;
+					Claude.m_Scoped = CUsageLimit{.m_Name = "Fable", .m_Percent = 50.0, .m_ResetsAt = Now + 86400};
+					Claude.m_AllModels = CUsageLimit{.m_Percent = 30.0, .m_ResetsAt = Now + 86400};
+					Claude.m_FetchedAt = _FetchedAt;
+
+					CStatusCache Cache;
+					Cache.m_Claude = Claude;
+
+					return fg_RenderStatusLine(Input, Cache, Now, {}).m_Line;
+				}
+			;
+
+			DMibTestCategory("Fresh")
+			{
+				NStr::CStr Line = fRender(Now - 600);
+
+				DMibExpect(Line.f_Find("50%"), >=, 0);
+				DMibExpect(Line.f_Find("30%"), >=, 0);
+				DMibExpect(Line.f_Find("50%~"), <, 0);
+				DMibExpect(Line.f_Find("30%~"), <, 0);
+			};
+
+			DMibTestCategory("Stale")
+			{
+				NStr::CStr Line = fRender(Now - 7200);
+
+				DMibExpect(Line.f_Find("50%~"), >=, 0);
+				DMibExpect(Line.f_Find("30%~"), >=, 0);
+			};
+
+			DMibTestCategory("StaleWithCurrentDocument")
+			{
+				Input.m_bWeeklyPresent = true;
+				Input.m_WeeklyPercent = 30.0;
+
+				NStr::CStr Line = fRender(Now - 7200);
+
+				DMibExpect(Line.f_Find("50%~"), >=, 0);
+				DMibExpect(Line.f_Find("30%~"), <, 0);
+			};
+
+			DMibTestCategory("LastErrorRoundTrip")
+			{
+				CStatusCache Cache;
+				Cache.m_Claude = CClaudeCache{.m_LastError = "The usage API answered 401 Unauthorized", .m_ClaimID = "5JtmDkjNATBMeH6bX"};
+
+				CStatusCache Read = CStatusCache::fs_FromJson(Cache.f_ToJson());
+
+				DMibAssertTrue(bool(Read.m_Claude));
+				DMibExpect(Read.m_Claude->m_LastError, ==, "The usage API answered 401 Unauthorized");
+				DMibExpect(Read.m_Claude->m_ClaimID, ==, "5JtmDkjNATBMeH6bX");
+			};
+		};
+
+		DMibTestSuite("CacheErrorText")
+		{
+			// "å" is two bytes, so a cut at 4 bytes in "abcåd" falls inside it
+			NStr::CStr Text = "abc\xC3\xA5" "d";
+
+			DMibExpect(fg_CacheErrorText(Text, 4), ==, "abc...");
+			DMibExpect(fg_CacheErrorText(Text, 5), ==, "abc\xC3\xA5...");
+			DMibExpect(fg_CacheErrorText(Text, 100), ==, Text);
+			DMibExpect(fg_CacheErrorText("ab\xFF" "c", 100), ==, "ab\xEF\xBF\xBD" "c");
+		};
+
+		DMibTestSuite("ApplyClaudeRefresh")
+		{
+			auto fClaimed = [](NStr::CStr const &_ClaimID, int64 _FetchedAt)
+				{
+					CStatusCache Cache;
+					Cache.m_Claude = CClaudeCache{.m_ClaimID = _ClaimID, .m_FetchedAt = _FetchedAt, .m_AttemptedAt = 200};
+					return Cache;
+				}
+			;
+
+			DMibTestCategory("OwnSuccess")
+			{
+				CStatusCache Cache = fClaimed("A", 100);
+				fg_ApplyClaudeRefresh(Cache, CClaudeCache{.m_FetchedAt = 210}, "", "A", 0);
+
+				DMibExpect(Cache.m_Claude->m_FetchedAt, ==, 210);
+				DMibExpect(Cache.m_Claude->m_ClaimID, ==, "");
+			};
+
+			DMibTestCategory("OwnFailure")
+			{
+				CStatusCache Cache = fClaimed("A", 100);
+				fg_ApplyClaudeRefresh(Cache, {}, "Failed", "A", 0);
+
+				DMibExpect(Cache.m_Claude->m_FetchedAt, ==, 100);
+				DMibExpect(Cache.m_Claude->m_LastError, ==, "Failed");
+			};
+
+			DMibTestCategory("SupersededFailure")
+			{
+				CStatusCache Cache = fClaimed("B", 100);
+				fg_ApplyClaudeRefresh(Cache, {}, "Failed", "A", 0);
+
+				DMibExpect(Cache.m_Claude->m_LastError, ==, "");
+			};
+
+			DMibTestCategory("OlderSuccessKeepsNewerClaim")
+			{
+				CStatusCache Cache = fClaimed("B", 100);
+				fg_ApplyClaudeRefresh(Cache, CClaudeCache{.m_FetchedAt = 150}, "", "A", 0);
+
+				DMibExpect(Cache.m_Claude->m_FetchedAt, ==, 150);
+				DMibExpect(Cache.m_Claude->m_ClaimID, ==, "B");
+				DMibExpect(Cache.m_Claude->m_AttemptedAt, ==, 200);
+
+				fg_ApplyClaudeRefresh(Cache, {}, "Failed", "B", 0);
+				DMibExpect(Cache.m_Claude->m_LastError, ==, "Failed");
+			};
+
+			DMibTestCategory("OlderSuccessKeepsNewerError")
+			{
+				CStatusCache Cache = fClaimed("B", 100);
+				Cache.m_Claude->m_LastError = "Failed";
+				fg_ApplyClaudeRefresh(Cache, CClaudeCache{.m_FetchedAt = 150}, "", "A", 0);
+
+				DMibExpect(Cache.m_Claude->m_FetchedAt, ==, 150);
+				DMibExpect(Cache.m_Claude->m_LastError, ==, "Failed");
+			};
+
+			DMibTestCategory("OwnSuccessAfterNewerUsage")
+			{
+				CStatusCache Cache = fClaimed("B", 300);
+				fg_ApplyClaudeRefresh(Cache, CClaudeCache{.m_FetchedAt = 250}, "", "B", 0);
+
+				DMibExpect(Cache.m_Claude->m_FetchedAt, ==, 300);
+				DMibExpect(Cache.m_Claude->m_ClaimID, ==, "");
+			};
+
+			DMibTestCategory("SameSecondKeepsLaterFetch")
+			{
+				CStatusCache Cache = fClaimed("B", 300);
+				Cache.m_Claude->m_FetchedAtMs = 300500;
+				fg_ApplyClaudeRefresh(Cache, CClaudeCache{.m_FetchedAt = 300, .m_FetchedAtMs = 300200}, "", "A", 0);
+
+				DMibExpect(Cache.m_Claude->m_FetchedAtMs, ==, 300500);
+			};
+
+			DMibTestCategory("ClockMovedBack")
+			{
+				// Nothing saved since the claim, so an earlier fetch time is the clock, not another refresh
+				CStatusCache Cache = fClaimed("A", 300);
+				fg_ApplyClaudeRefresh(Cache, CClaudeCache{.m_FetchedAt = 250}, "", "A", 300000);
+
+				DMibExpect(Cache.m_Claude->m_FetchedAt, ==, 250);
+			};
+
+			DMibTestCategory("OlderSuccessAfterNewerUsage")
+			{
+				CStatusCache Cache = fClaimed("", 300);
+				fg_ApplyClaudeRefresh(Cache, CClaudeCache{.m_FetchedAt = 250}, "", "A", 0);
+
+				DMibExpect(Cache.m_Claude->m_FetchedAt, ==, 300);
+			};
+		};
 	}
 }
 

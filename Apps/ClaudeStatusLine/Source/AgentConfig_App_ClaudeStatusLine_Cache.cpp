@@ -5,6 +5,7 @@
 #include <Mib/Core/OnScopeExitCatch>
 #include <Mib/Cryptography/RandomID>
 #include <Mib/File/File>
+#include <Mib/String/UnicodeConversion>
 #include <Mib/Time/Time>
 
 #include "AgentConfig_App_ClaudeStatusLine_Cache.h"
@@ -207,8 +208,11 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			CClaudeCache Claude;
 
 			Claude.m_FetchedAt = fg_JsonNumber(fg_JsonMember(pClaude, "fetchedAt")).f_ToInt();
+			Claude.m_FetchedAtMs = fg_JsonNumber(fg_JsonMember(pClaude, "fetchedAtMs")).f_ToInt();
 			Claude.m_AttemptedAt = fg_JsonNumber(fg_JsonMember(pClaude, "attemptedAt")).f_ToInt();
 			Claude.m_SeenWeekly = fg_MemberText(pClaude, "seenWeekly");
+			Claude.m_LastError = fg_MemberText(pClaude, "lastError");
+			Claude.m_ClaimID = fg_MemberText(pClaude, "claimId");
 
 			auto fReadLimit = [](NEncoding::CJsonSorted const *_pParent, ch8 const *_pName) -> NStorage::TCOptional<CUsageLimit>
 				{
@@ -279,10 +283,20 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			Claude = NEncoding::EJsonType_Object;
 			Claude["fetchedAt"] = m_Claude->m_FetchedAt;
+
+			if (m_Claude->m_FetchedAtMs)
+				Claude["fetchedAtMs"] = m_Claude->m_FetchedAtMs;
+
 			Claude["seenWeekly"] = m_Claude->m_SeenWeekly;
 
 			if (m_Claude->m_AttemptedAt)
 				Claude["attemptedAt"] = m_Claude->m_AttemptedAt;
+
+			if (!m_Claude->m_LastError.f_IsEmpty())
+				Claude["lastError"] = m_Claude->m_LastError;
+
+			if (!m_Claude->m_ClaimID.f_IsEmpty())
+				Claude["claimId"] = m_Claude->m_ClaimID;
 
 			auto fWriteLimit = [](NEncoding::CJsonSorted &o_Parent, ch8 const *_pName, CUsageLimit const &_Limit)
 				{
@@ -376,11 +390,20 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		NFile::CFile::fs_AtomicReplaceFile(TemporaryPath, Path);
 	}
 
-	NContainer::TCVector<CStr> fg_ClaimRefresh(NContainer::TCVector<CStr> const &_Targets, int64 _Observed, int64 _Now)
+	namespace
+	{
+		// When the usage was fetched, in milliseconds, for entries written before fetchedAtMs from their seconds
+		int64 fg_FetchOrder(CClaudeCache const &_Claude)
+		{
+			return _Claude.m_FetchedAtMs ? _Claude.m_FetchedAtMs : _Claude.m_FetchedAt * 1000;
+		}
+	}
+
+	CRefreshClaim fg_ClaimRefresh(NContainer::TCVector<CStr> const &_Targets, int64 _Observed, int64 _Now, CStr const &_ClaimID)
 	{
 		CCacheLock Lock;
 		CStatusCache Cache = fg_ReadCache();
-		NContainer::TCVector<CStr> Claimed;
+		CRefreshClaim Claim;
 
 		for (CStr const &Target : _Targets)
 		{
@@ -393,6 +416,10 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					Cache.m_Claude = CClaudeCache{};
 
 				Cache.m_Claude->m_AttemptedAt = _Now;
+				Cache.m_Claude->m_ClaimID = _ClaimID;
+				Claim.m_ClaudeFetchOrder = fg_FetchOrder(*Cache.m_Claude);
+				// The error of an earlier claim would otherwise be taken for this one's when other usage is saved over it
+				Cache.m_Claude->m_LastError.f_Clear();
 			}
 			else if (Target == "codex")
 			{
@@ -407,27 +434,90 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			else
 				continue;
 
-			Claimed.f_Insert(Target);
+			Claim.m_Targets.f_Insert(Target);
 		}
 
-		if (!Claimed.f_IsEmpty())
+		if (!Claim.m_Targets.f_IsEmpty())
 			fg_WriteCache(Cache);
 
-		return Claimed;
+		return Claim;
 	}
 
-	void fg_SaveRefreshed(NStorage::TCOptional<CClaudeCache> const &_Claude, NStorage::TCOptional<CCodexCache> const &_Codex)
+	void fg_SaveRefreshed
+		(
+			NStorage::TCOptional<CClaudeCache> const &_Claude
+			, NStr::CStr const &_ClaudeError
+			, NStorage::TCOptional<CCodexCache> const &_Codex
+			, NStr::CStr const &_ClaimID
+			, int64 _ClaudeFetchOrderAtClaim
+		)
 	{
 		CCacheLock Lock;
 		CStatusCache Cache = fg_ReadCache();
 
-		if (_Claude)
-			Cache.m_Claude = *_Claude;
+		fg_ApplyClaudeRefresh(Cache, _Claude, _ClaudeError, _ClaimID, _ClaudeFetchOrderAtClaim);
 
 		if (_Codex)
 			Cache.m_Codex = *_Codex;
 
 		fg_WriteCache(Cache);
+	}
+
+	void fg_ApplyClaudeRefresh(CStatusCache &o_Cache, NStorage::TCOptional<CClaudeCache> const &_Claude, CStr const &_ClaudeError, CStr const &_ClaimID, int64 _ClaudeFetchOrderAtClaim)
+	{
+		bool bOwnClaim = o_Cache.m_Claude && o_Cache.m_Claude->m_ClaimID == _ClaimID;
+
+		if (_Claude)
+		{
+			bool bSavedSinceClaim = o_Cache.m_Claude && fg_FetchOrder(*o_Cache.m_Claude) != _ClaudeFetchOrderAtClaim;
+
+			if (bSavedSinceClaim && fg_FetchOrder(*o_Cache.m_Claude) > fg_FetchOrder(*_Claude))
+			{
+				// Usage fetched later stays. The refresh that owns the claim has still finished, and without an error
+				if (bOwnClaim)
+				{
+					o_Cache.m_Claude->m_ClaimID.f_Clear();
+					o_Cache.m_Claude->m_LastError.f_Clear();
+				}
+
+				return;
+			}
+
+			if (bOwnClaim || !o_Cache.m_Claude)
+			{
+				o_Cache.m_Claude = *_Claude;
+				return;
+			}
+
+			CClaudeCache Claude = *_Claude;
+
+			Claude.m_ClaimID = o_Cache.m_Claude->m_ClaimID;
+			Claude.m_AttemptedAt = o_Cache.m_Claude->m_AttemptedAt;
+			Claude.m_LastError = o_Cache.m_Claude->m_LastError;
+			o_Cache.m_Claude = fg_Move(Claude);
+		}
+		else if (!_ClaudeError.f_IsEmpty() && bOwnClaim)
+			o_Cache.m_Claude->m_LastError = _ClaudeError;
+	}
+
+	CStr fg_CacheErrorText(CStr const &_Error, umint _MaxBytes)
+	{
+		CStr Text = NStr::fg_IsValidUTF8(_Error) ? _Error : NStr::fg_ReplaceSequenceUTF8(_Error);
+
+		if (Text.f_GetLen() <= _MaxBytes)
+			return Text;
+
+		NStr::CStrIteratorUTF8 iCharacter(Text.f_GetStr(), _MaxBytes);
+
+		while (iCharacter && iCharacter.f_IsWholeCodePoint())
+			++iCharacter;
+
+		return Text.f_Left(iCharacter.f_GetLastWholeCodePointPos()) + "...";
+	}
+
+	int64 fg_UnixNowMilliseconds()
+	{
+		return int64(NTime::CTimeConvert(NTime::CTime::fs_NowUTC()).f_UnixMilliseconds());
 	}
 
 	int64 fg_UnixNow()

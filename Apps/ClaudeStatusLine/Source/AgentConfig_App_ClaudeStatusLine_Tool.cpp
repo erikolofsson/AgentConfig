@@ -19,6 +19,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 	namespace
 	{
+		constexpr umint gc_MaxStoredErrorLength = 500;
+
 		// Starts `--refresh` for the stale targets as a child that outlives this process. Its stdio
 		// is pipes this process closes right away, so it never holds the stdout Claude Code reads
 		void fg_SpawnRefresh(NContainer::TCVector<CStr> const &_Targets, CStr const &_SeenWeekly, int64 _Observed)
@@ -301,17 +303,18 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 		// The entries are claimed under the cache's lock before any work, so a second session that
 		// found the same entry stale finds it taken and leaves it alone
-		NContainer::TCVector<CStr> Claimed;
+		CRefreshClaim Claim;
 		int64 ClaimedAt = fg_UnixNow();
+		CStr ClaimID = NCryptography::fg_FastRandomID();
 		{
 			auto BlockingActorCheckout = fg_BlockingActor();
 
-			Claimed = co_await
+			Claim = co_await
 				(
 					g_Dispatch(BlockingActorCheckout)
-					/ [Requested, _Observed, Now = ClaimedAt]
+					/ [Requested, _Observed, Now = ClaimedAt, ClaimID]
 					{
-						return fg_ClaimRefresh(Requested, _Observed, Now);
+						return fg_ClaimRefresh(Requested, _Observed, Now, ClaimID);
 					}
 					% "Claiming the usage entries to refresh"
 				)
@@ -321,7 +324,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		bool bClaude = false;
 		bool bCodex = false;
 
-		for (CStr const &Target : Claimed)
+		for (CStr const &Target : Claim.m_Targets)
 		{
 			if (Target == "claude")
 				bClaude = true;
@@ -346,6 +349,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		NContainer::TCVector<TCAsyncResult<void>> Outcomes;
 		NStorage::TCOptional<CClaudeCache> ClaudeRefreshed;
 		NStorage::TCOptional<CCodexCache> CodexRefreshed;
+		CStr ClaudeError;
 
 		if (bClaude)
 		{
@@ -353,6 +357,14 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			if (Claude)
 				ClaudeRefreshed = *Claude;
+			else
+			{
+				// Every render reads the cache, and the error can carry a whole error page from the usage API. The
+				// refresh's own output keeps all of it
+				ClaudeError = Claude.f_GetExceptionStr();
+
+				ClaudeError = fg_CacheErrorText(ClaudeError, gc_MaxStoredErrorLength);
+			}
 
 			Outcomes.f_Insert(fg_Outcome(Claude));
 		}
@@ -371,16 +383,16 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			Outcomes.f_Insert(fg_Outcome(Codex));
 		}
 
-		if (ClaudeRefreshed || CodexRefreshed)
+		if (ClaudeRefreshed || CodexRefreshed || !ClaudeError.f_IsEmpty())
 		{
 			auto BlockingActorCheckout = fg_BlockingActor();
 
 			co_await
 				(
 					g_Dispatch(BlockingActorCheckout)
-					/ [ClaudeRefreshed, CodexRefreshed]
+					/ [ClaudeRefreshed, ClaudeError, CodexRefreshed, ClaimID, ClaudeFetchOrder = Claim.m_ClaudeFetchOrder]
 					{
-						fg_SaveRefreshed(ClaudeRefreshed, CodexRefreshed);
+						fg_SaveRefreshed(ClaudeRefreshed, ClaudeError, CodexRefreshed, ClaimID, ClaudeFetchOrder);
 					}
 					% "Writing the usage cache"
 				)

@@ -22,6 +22,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		constexpr int64 gc_ClaudeMaxAge = 600; // ...and refresh at least this often
 		constexpr int64 gc_CodexMaxAge = 180; // spawning the codex binary costs ~0.5s
 		constexpr int64 gc_CodexStaleAfter = 43200; // 12h: mark a fallback snapshot as stale
+		constexpr int64 gc_ClaudeStaleAfter = 3600; // 1h of failed refreshes: mark the Claude usage from the cache as stale
 		constexpr int64 gc_OutputReserveTokens = 20000; // What Claude Code keeps for output when the maximum output is larger
 		constexpr int64 gc_SummaryBufferTokens = 13000; // What Claude Code keeps below the effective window for the summary
 		constexpr int64 gc_DefaultContextWindowTokens = 200000;
@@ -394,7 +395,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		}
 
 		// The spend so far this month against the cap, with a burn bar paced over the month when there is a cap
-		void fg_AddSpend(CStr::CAppender &_Appender, CSpendLimit const &_Spend, int64 _Now)
+		void fg_AddSpend(CStr::CAppender &_Appender, CSpendLimit const &_Spend, int64 _Now, bool _bStale)
 		{
 			bool bDollars = _Spend.m_Currency.f_IsEmpty() || _Spend.m_Currency == "USD";
 
@@ -413,6 +414,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 					_Appender += _Spend.m_Currency;
 				}
 
+				if (_bStale)
+					_Appender += gc_Str<"~">;
+
 				_Appender += gc_Reset;
 				return;
 			}
@@ -421,6 +425,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			_Appender += bDollars ? gc_Str<"$"> : _Spend.m_Currency;
 			fg_AddNumber(_Appender, ":{}%", fg_Floor(Percent));
+
+			if (_bStale)
+				_Appender += gc_Str<"~">;
 
 			_Appender += gc_Reset;
 
@@ -458,6 +465,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			CStr const *m_pLabel = nullptr;
 			fp64 m_Percent = 0.0;
 			int64 m_ResetsAt = 0;
+			bool m_bStale = false;
 		};
 
 		// When the quota runs out at the pace so far in its window, none for a limit that is unused or outside its window
@@ -817,6 +825,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 			CUsageLimit const *pScoped = _Cache.m_Claude && _Cache.m_Claude->m_Scoped ? &*_Cache.m_Claude->m_Scoped : nullptr;
 			CUsageLimit const *pAllModels = _Cache.m_Claude && _Cache.m_Claude->m_AllModels ? &*_Cache.m_Claude->m_AllModels : nullptr;
 			bool bScopedApplies = pScoped && fg_ScopedLimitApplies(_Input.m_ModelName, *pScoped);
+			// The status document's own limit is current, but what the cache holds is as old as the last refresh that
+			// succeeded
+			bool bClaudeStale = _Cache.m_Claude && _Now - _Cache.m_Claude->m_FetchedAt >= gc_ClaudeStaleAfter;
 
 			CShownLimit Limits[2];
 			aint nLimits = 0;
@@ -829,6 +840,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 						.m_pLabel = pScoped->m_Name.f_IsEmpty() ? &gc_DefaultModel : &pScoped->m_Name
 						, .m_Percent = pScoped->m_Percent
 						, .m_ResetsAt = pScoped->m_ResetsAt
+						, .m_bStale = bClaudeStale
 					}
 				;
 			}
@@ -851,6 +863,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 				{
 					Limit.m_Percent = pAllModels->m_Percent;
 					Limit.m_ResetsAt = pAllModels->m_ResetsAt;
+					Limit.m_bStale = bClaudeStale;
 				}
 			}
 
@@ -887,6 +900,9 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 					fg_AddNumber(Appender, "{}%", fg_Floor(Limits[iLimit].m_Percent));
 
+					if (Limits[iLimit].m_bStale)
+						Appender += gc_Str<"~">;
+
 					Appender += gc_Reset;
 				}
 
@@ -904,7 +920,7 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 			// An account billed by usage has a monthly spend cap rather than weekly limits
 			if (!nLimits && _Cache.m_Claude && _Cache.m_Claude->m_Spend)
-				fg_AddSpend(Appender, *_Cache.m_Claude->m_Spend, _Now);
+				fg_AddSpend(Appender, *_Cache.m_Claude->m_Spend, _Now, bClaudeStale);
 
 			// A claimed refresh writes the entry before any fetch has succeeded
 			if (_Cache.m_Codex && _Cache.m_Codex->m_FetchedAt > 0)
