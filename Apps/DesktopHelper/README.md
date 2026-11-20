@@ -71,6 +71,19 @@ When the helper is not running, `--run` fails right away and prints how to start
 to do that. The last line of the message says why the connection failed, such as a missing socket, or that the helper
 has never run.
 
+## Who can run commands
+
+Any process of the same user that can connect to the socket in `~/.AgentConfig/DesktopHelper` and read the
+connection ticket there can run commands in the desktop session, with the helper's environment and the macOS privacy
+permissions granted to it, such as Screen Recording and Accessibility. That is what the helper is for, and it has
+consequences:
+
+- A command run through the helper is outside any sandbox of its caller. An agent sandbox, such as Claude Code's or
+  Codex's, keeps a sandboxed command from using the helper only if it denies that command `~/.AgentConfig/DesktopHelper`.
+  Deny the directory in the sandbox settings of agents that should not reach the desktop.
+- Every process of the user, also one started over SSH, can use the permissions granted to the helper. Grant them
+  only on machines where that is acceptable.
+
 ## Audit log
 
 The helper logs every run to `~/.AgentConfig/DesktopHelper/Log/DesktopHelper.log`: the command line, the working
