@@ -35,6 +35,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		NConcurrency::TCFuture<uint32> fp_RunRefresh(NStr::CStr _Targets, int64 _Observed);
 
 		// Points the statusLine command in the Claude Code settings at this executable
-		NConcurrency::TCFuture<uint32> fp_RunInstall(NStorage::TCSharedPointer<NConcurrency::CCommandLineControl> _pCommandLine, NStr::CStr _SettingsPath, int64 _RefreshInterval);
+		auto fp_RunInstall(NStorage::TCSharedPointer<NConcurrency::CCommandLineControl> _pCommandLine, NStr::CStr _SettingsPath, int64 _RefreshInterval, NStr::CStr _Shell)
+			-> NConcurrency::TCFuture<uint32>
+		;
 	};
 }

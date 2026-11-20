@@ -5,6 +5,7 @@
 #include <Mib/Test/Test>
 
 #include "../Source/AgentConfig_App_ClaudeStatusLine_Render.h"
+#include "../Source/AgentConfig_App_ClaudeStatusLine_Install.h"
 
 using namespace NMib;
 using namespace NMib::NAgentConfig::NClaudeStatusLine;
@@ -89,6 +90,51 @@ namespace
 			fCheck("LongUnicodeGrouping", "1\xE2\x80\xAF" "000\xE2\x80\xAF" "000\xE2\x80\xAF" "000\xE2\x80\xAF" "000\xE2\x80\xAF" "000\xE2\x80\xAF" "000", int64(1) << 53);
 			fCheck("NoDigits", "many", {});
 			fCheck("Empty", "", {});
+		};
+
+		DMibTestSuite("NormalizedPath")
+		{
+			DMibExpect(fg_NormalizedPath("C:\\PortableGit\\cmd\\."), ==, "C:/PortableGit/cmd");
+			DMibExpect(fg_NormalizedPath("C:/PortableGit/cmd/../cmd/"), ==, "C:/PortableGit/cmd");
+			DMibExpect(fg_NormalizedPath("C:/.."), ==, "C:/");
+			DMibExpect(fg_NormalizedPath("D:\\"), ==, "D:/");
+			DMibExpect(fg_NormalizedPath("//server/share/./git"), ==, "//server/share/git");
+			DMibExpect(fg_NormalizedPath("/usr/local/../bin"), ==, "/usr/bin");
+		};
+
+		DMibTestSuite("StatusLineCommand")
+		{
+			DMibExpect(fg_StatusLineCommand("/opt/Deploy/AgentConfig/ClaudeStatusLine", EStatusLineShell::mc_Bash), ==, "/opt/Deploy/AgentConfig/ClaudeStatusLine --status-line");
+			DMibExpect(fg_StatusLineCommand("C:/Deploy/AgentConfig/ClaudeStatusLine.exe", EStatusLineShell::mc_PowerShell), ==, "C:/Deploy/AgentConfig/ClaudeStatusLine.exe --status-line");
+			DMibExpect(fg_StatusLineCommand("C:/Users/Andr\xC3\xA9/ClaudeStatusLine.exe", EStatusLineShell::mc_PowerShell), ==, "C:/Users/Andr\xC3\xA9/ClaudeStatusLine.exe --status-line");
+
+			DMibTestCategory("Quoted")
+			{
+				DMibExpect
+					(
+						fg_StatusLineCommand("C:/Program Files/Tools(Dev)/ClaudeStatusLine.exe", EStatusLineShell::mc_Bash)
+						, ==
+						, "'C:/Program Files/Tools(Dev)/ClaudeStatusLine.exe' --status-line"
+					)
+				;
+				DMibExpect(fg_StatusLineCommand("C:/Program Files/ClaudeStatusLine.exe", EStatusLineShell::mc_PowerShell), ==, "& 'C:/Program Files/ClaudeStatusLine.exe' --status-line");
+				DMibExpect(fg_StatusLineCommand("C:/Tools/O'Brien/ClaudeStatusLine.exe", EStatusLineShell::mc_PowerShell), ==, "& 'C:/Tools/O''Brien/ClaudeStatusLine.exe' --status-line");
+				DMibExpect
+					(
+						fg_StatusLineCommand("C:/Tools/Build=Local/ClaudeStatusLine.exe", EStatusLineShell::mc_PowerShell)
+						, ==
+						, "& 'C:/Tools/Build=Local/ClaudeStatusLine.exe' --status-line"
+					)
+				;
+				DMibExpect(fg_StatusLineCommand("C:/My\xC2\xA0Tools/ClaudeStatusLine.exe", EStatusLineShell::mc_PowerShell), ==, "& 'C:/My\xC2\xA0Tools/ClaudeStatusLine.exe' --status-line");
+				DMibExpect
+					(
+						fg_StatusLineCommand("C:/O\xE2\x80\x99" "Brien/ClaudeStatusLine.exe", EStatusLineShell::mc_PowerShell)
+						, ==
+						, "& 'C:/O\xE2\x80\x99\xE2\x80\x99" "Brien/ClaudeStatusLine.exe' --status-line"
+					)
+				;
+			};
 		};
 
 		DMibTestSuite("ScopedLimitApplies")

@@ -9,6 +9,7 @@
 #include <Mib/Process/ProcessLaunch>
 
 #include "AgentConfig_App_ClaudeStatusLine_Tool.h"
+#include "AgentConfig_App_ClaudeStatusLine_Install.h"
 #include "AgentConfig_App_ClaudeStatusLine_Refresh.h"
 #include "AgentConfig_App_ClaudeStatusLine_Render.h"
 
@@ -155,11 +156,20 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 							, "Description"_o= "Seconds between the timed re-runs Claude Code makes on top of its own triggers, which keeps "
 							"the burn bars and the times to reset moving while a session sits idle. Zero leaves the setting out.\n"
 						}
+						, "Shell?"_o=
+						{
+							"Names"_o= _o["--shell"]
+							, "Default"_o= "auto"
+							, "Type"_o= NEncoding::fg_UserTypeOrdered("$OneOf", _jo["auto", "bash", "powershell"])
+							, "Description"_o= "The shell the command is written for. Auto is the one Claude Code would use here: Bash, or on "
+							"Windows Git Bash when it is found the way Claude Code finds it, and PowerShell otherwise. Name it when Claude Code "
+							"starts with another PATH or CLAUDE_CODE_GIT_BASH_PATH than this command line has.\n"
+						}
 					}
 				}
 				, [this](NEncoding::CEJsonSorted const &_Params, NStorage::TCSharedPointer<CCommandLineControl> &&_pCommandLine)
 				{
-					return fp_RunInstall(fg_Move(_pCommandLine), _Params["Settings"].f_String(), _Params["RefreshInterval"].f_String().f_ToIntExact(int64(10)));
+					return fp_RunInstall(fg_Move(_pCommandLine), _Params["Settings"].f_String(), _Params["RefreshInterval"].f_String().f_ToIntExact(int64(10)), _Params["Shell"].f_String());
 				}
 			)
 		;
@@ -235,19 +245,22 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 		co_return 0;
 	}
 
-	TCFuture<uint32> CStatusLineTool::fp_RunInstall(NStorage::TCSharedPointer<CCommandLineControl> _pCommandLine, CStr _SettingsPath, int64 _RefreshInterval)
+	TCFuture<uint32> CStatusLineTool::fp_RunInstall(NStorage::TCSharedPointer<CCommandLineControl> _pCommandLine, CStr _SettingsPath, int64 _RefreshInterval, CStr _Shell)
 	{
 		if (_SettingsPath.f_IsEmpty())
 			_SettingsPath = fg_GetHomeDirectory() / ".claude/settings.json";
 
-		CStr Command = "{} --status-line"_f << NFile::CFile::fs_GetProgramPath();
 		auto BlockingActorCheckout = fg_BlockingActor();
 
-		co_await
+		CStr Command = co_await
 			(
 				g_Dispatch(BlockingActorCheckout)
-				/ [SettingsPath = _SettingsPath, Command, _RefreshInterval]
+				/ [SettingsPath = _SettingsPath, _RefreshInterval, _Shell]
 				{
+					// Finding the shell looks for files on the PATH, which a network directory can hold up
+					EStatusLineShell Shell = _Shell == "bash" ? EStatusLineShell::mc_Bash : _Shell == "powershell" ? EStatusLineShell::mc_PowerShell : fg_StatusLineShell();
+					CStr Command = fg_StatusLineCommand(NFile::CFile::fs_GetProgramPath(), Shell);
+
 					// The settings keep their key order; only statusLine is replaced
 					NEncoding::CJsonOrdered Settings(NEncoding::EJsonType_Object);
 
@@ -276,6 +289,8 @@ namespace NMib::NAgentConfig::NClaudeStatusLine
 
 					NFile::CFile::fs_WriteStringToFile(TemporaryPath, Settings.f_ToString("  "), false);
 					NFile::CFile::fs_AtomicReplaceFile(TemporaryPath, SettingsPath);
+
+					return Command;
 				}
 				% "Installing the status line"
 			)

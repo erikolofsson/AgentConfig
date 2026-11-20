@@ -46,5 +46,6 @@ Property
 		"Test/*"->MakeAbsolute()
 		, "Source/AgentConfig_App_ClaudeStatusLine_Render.cpp"->MakeAbsolute()
 		, "Source/AgentConfig_App_ClaudeStatusLine_Cache.cpp"->MakeAbsolute()
+		, "Source/AgentConfig_App_ClaudeStatusLine_Install.cpp"->MakeAbsolute()
 	]
 }

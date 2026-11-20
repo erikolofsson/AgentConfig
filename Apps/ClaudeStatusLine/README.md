@@ -37,6 +37,11 @@ Claude Code's own triggers are conversation events, so `refreshInterval` is what
 and the times to reset moving while a session sits idle. `--refresh-interval` changes the seconds,
 and zero leaves the setting out.
 
+The command is written for the shell Claude Code runs it with. That is Bash, except on Windows without Git Bash, where
+it is PowerShell, which needs `& '...'` to run a quoted path. `--install` finds Git Bash the way Claude Code does, from
+`CLAUDE_CODE_GIT_BASH_PATH`, the default Git directories and the git on the PATH. When Claude Code starts with another
+environment than the terminal `--install` runs in, `--shell bash` or `--shell powershell` names the shell instead.
+
 ## Trying it out without Claude Code
 
 `--input` takes the status document directly, so the layout can be iterated on without piping:
@@ -59,6 +64,7 @@ and zero leaves the setting out.
 | `Source/AgentConfig_App_ClaudeStatusLine_Tool.h/.cpp` | `CStatusLineTool`, the `CDistributedTool` that registers `--status-line`, `--refresh`, and `--install`. |
 | `Source/AgentConfig_App_ClaudeStatusLine_Render.h/.cpp` | The bars and the line, from the status document and the cache. |
 | `Source/AgentConfig_App_ClaudeStatusLine_Cache.h/.cpp` | `~/.claude/statusline-cache.json`, read on every render and written by the refresh. |
+| `Source/AgentConfig_App_ClaudeStatusLine_Install.h/.cpp` | The status line command `--install` writes, for the shell Claude Code runs it with. |
 | `Source/AgentConfig_App_ClaudeStatusLine_Refresh.h/.cpp` | The usage API and codex app-server lookups behind `--refresh`. |
 | `Test/` | Tests of the render, in the `Tests` workspace. |
 
